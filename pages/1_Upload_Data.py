@@ -4,10 +4,7 @@ import os
 from datetime import datetime
 from config import get_default_target_courses, get_default_grading_system, get_intensive_courses
 from utilities import save_uploaded_file
-from data_processing import (
-    read_progress_report,
-    read_equivalent_courses
-)
+from data_processing import read_progress_report
 from logging_utils import setup_logging, log_action
 from google_drive_utils import authenticate_google_drive, search_file, download_file
 from googleapiclient.discovery import build
@@ -33,10 +30,8 @@ def load_equivalent_courses_file(file_path='equivalent_courses.csv'):
         st.warning("No equivalent courses file found on Google Drive.")
         return None
 
-# Setup logging (unchanged)
 setup_logging()
 
-# Button to reload equivalents
 if st.button("Reload Equivalent Courses", help="Click to reload the equivalent courses mapping from Google Drive"):
     eq_df = load_equivalent_courses_file()
     if eq_df is not None:
@@ -55,7 +50,6 @@ if uploaded_file is not None:
     filepath = save_uploaded_file(uploaded_file)
     df = read_progress_report(filepath)
     if df is not None:
-        # Store df in session state for other pages to use
         st.session_state['raw_df'] = df
         st.success("File uploaded and processed successfully. Move to 'Customize Courses' or 'View Reports'.")
         log_action("Data file uploaded and processed.")

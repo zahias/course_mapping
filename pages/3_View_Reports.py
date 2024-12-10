@@ -12,9 +12,8 @@ from logging_utils import log_action
 from google_drive_utils import authenticate_google_drive, download_file
 from datetime import datetime
 import os
-
-# Import assignment functions from the new assignment_utils file
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
+from config import get_default_grading_system
 
 st.title("View Reports")
 st.markdown("---")
@@ -29,9 +28,7 @@ else:
     if target_courses is None or intensive_courses is None:
         st.warning("Courses not defined yet. Go to 'Customize Courses'.")
     else:
-        from config import get_default_grading_system
         default_grading_system = get_default_grading_system()
-
         per_student_assignments = load_assignments()
 
         eq_df = None
@@ -58,7 +55,6 @@ else:
         )
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
-        # View options
         all_possible_grades = default_grading_system['Counted'] + default_grading_system['Not Counted']
         counted_grades = st.multiselect(
             "Select Counted Grades",
@@ -88,7 +84,6 @@ else:
                 if show_all_grades:
                     return ', '.join(grades_list)
                 else:
-                    # Return first counted grade or first available grade if none are counted
                     for grade in grading_system['Counted']:
                         if grade in grades_list:
                             return grade
@@ -127,7 +122,7 @@ else:
             if isinstance(val, str):
                 value_upper = val.upper()
                 if value_upper.startswith('CR'):
-                    return 'background-color: #FFFACD'  # Light yellow
+                    return 'background-color: #FFFACD'
                 grades_list = [g.strip() for g in val.split(',') if g.strip()]
                 if any(grade in grading_system['Counted'] or 'CR' == grade.upper() for grade in grades_list):
                     return 'background-color: lightgreen'
@@ -145,14 +140,13 @@ else:
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Not Completed/Not Counted courses")
 
-        # S.C.E. and F.E.C.
         st.subheader("Assign S.C.E. and F.E.C. Courses")
         st.markdown("Select one S.C.E. and one F.E.C. course per student from extra courses.")
 
         if st.button("Reset All Assignments", help="Clears all saved S.C.E. and F.E.C. assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
-            st.rerun()
+            st.experimental_rerun()
 
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
 
@@ -187,9 +181,8 @@ else:
             if st.button("Save Assignments", help="Save the updated S.C.E./F.E.C. assignments to Google Drive"):
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
-                st.rerun()
+                st.experimental_rerun()
 
-        # Chart for completed vs. remaining credits
         if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
             summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
             fig = px.bar(
@@ -201,7 +194,6 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # Download processed report
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, grading_system)
         st.session_state['output'] = output.getvalue()
@@ -211,11 +203,9 @@ else:
             label="Download Processed Report",
             data=st.session_state['output'],
             file_name="student_progress_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Download the processed progress report with formatting."
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # Manual Backup option
         import shutil, datetime
         def backup_files():
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

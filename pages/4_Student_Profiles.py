@@ -10,7 +10,6 @@ if 'raw_df' not in st.session_state:
 else:
     df = st.session_state['raw_df'].copy()
 
-    # Ensure ID and NAME columns
     if 'ID' not in df.columns or 'NAME' not in df.columns:
         st.error("Data does not contain 'ID' or 'NAME' columns.")
         st.stop()
@@ -22,15 +21,13 @@ else:
         st.error("Data does not contain Year or Semester columns.")
         st.stop()
 
-    # Drop rows with missing Year or Semester
     df = df.dropna(subset=['Year', 'Semester'])
     if df.empty:
         st.warning("No valid records after dropping missing Year/Semester.")
         st.stop()
 
     if df['Year'].notnull().all():
-        df['Year'] = df['Year'].astype(float)
-        df['Year'] = df['Year'].astype(int, errors='ignore')
+        df['Year'] = df['Year'].astype(float).astype(int, errors='ignore')
     else:
         df = df[df['Year'].notnull()]
         if df.empty:
@@ -59,11 +56,10 @@ else:
 
     matching_students = students[students['NAME'] == selected_student]
     if matching_students.empty:
-        st.warning(f"No ID found for the selected student '{selected_student}'. Please check data consistency.")
+        st.warning(f"No ID found for the selected student '{selected_student}'.")
         st.stop()
 
     student_id = matching_students['ID'].iloc[0]
-
     student_data = df[df['ID'] == student_id].copy()
 
     if student_data.empty:
@@ -80,10 +76,8 @@ else:
             return 'background-color: pink'
         return ''
 
-    # Display full history without `help`
     st.dataframe(
-        student_data[['Year', 'Semester', 'Course', 'Grade']]
-        .style.applymap(highlight_nulls),
+        student_data[['Year', 'Semester', 'Course', 'Grade']].style.applymap(highlight_nulls),
         use_container_width=True
     )
 
@@ -123,10 +117,8 @@ else:
     st.markdown("**Filtered Academic Journey:**")
     st.markdown("_Below is the filtered set of courses based on your criteria._")
 
-    # Display filtered data without `help`
     st.dataframe(
-        filtered_data[['Year', 'Semester', 'Course', 'Grade']]
-        .style.applymap(highlight_nulls),
+        filtered_data[['Year', 'Semester', 'Course', 'Grade']].style.applymap(highlight_nulls),
         use_container_width=True
     )
 
