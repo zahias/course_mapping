@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 
 st.title("Student Profiles")
 st.markdown("---")
@@ -44,10 +43,6 @@ else:
         st.error("No student data found after processing.")
         st.stop()
 
-    st.markdown("**Debug Info:**")
-    st.write("Sample of available students:")
-    st.write(students.head(5))
-
     selected_student = st.selectbox(
         "Select a Student by Name", 
         students['NAME'].unique(),
@@ -68,21 +63,11 @@ else:
         st.stop()
 
     st.markdown(f"**Academic Journey for {selected_student} (ID: {student_id}):**")
-    st.markdown("Below is the entire history of courses for this student, sorted by Year and Semester.")
-    st.markdown("_This is the full journey. Use filters below to refine._")
 
     def highlight_nulls(val):
         if pd.isna(val):
             return 'background-color: pink'
         return ''
-
-    st.dataframe(
-        student_data[['Year', 'Semester', 'Course', 'Grade']].style.applymap(highlight_nulls),
-        use_container_width=True
-    )
-
-    st.markdown("---")
-    st.subheader("Filter the Journey")
 
     semesters = st.multiselect(
         "Filter by Semester",
@@ -124,21 +109,3 @@ else:
 
     if filtered_data.empty:
         st.info("No data matches your filters.")
-    else:
-        course_count = filtered_data.groupby(['Year', 'Semester']).size().reset_index(name='Count')
-        course_count['Sem_Order'] = course_count['Semester'].map(semester_order)
-        course_count = course_count.sort_values(by=['Year', 'Sem_Order'])
-
-        fig = px.bar(
-            course_count,
-            x='Semester',
-            y='Count',
-            color='Year',
-            barmode='group',
-            title=f"{selected_student}'s Course Load by Year and Semester"
-        )
-        fig.update_xaxes(categoryorder='array', categoryarray=['Spring', 'Summer', 'Fall'])
-        
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("*Tip:* Consider exploring advanced charts or timelines for a more visual academic journey representation.")
