@@ -36,7 +36,7 @@ if st.button("Reload Equivalent Courses", help="Click to reload the equivalent c
     eq_df = load_equivalent_courses_file()
     if eq_df is not None:
         st.sidebar.success("Equivalent courses mapping reloaded.")
-        st.experimental_rerun()
+        st.rerun()
     else:
         st.sidebar.warning("Failed to load equivalent courses mapping.")
 
