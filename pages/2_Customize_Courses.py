@@ -28,11 +28,24 @@ with st.expander("Course Customization Options", expanded=True):
 if 'raw_df' not in st.session_state:
     st.warning("No data uploaded yet. Please upload data first in 'Upload Data' page.")
 else:
-    target_courses = st.session_state.get('target_courses', get_default_target_courses())
-    intensive_courses = st.session_state.get('intensive_courses', get_intensive_courses())
+    if uploaded_courses is not None:
+        custom_df = pd.read_csv(uploaded_courses)
+        if 'Course' in custom_df.columns and 'Credits' in custom_df.columns:
+            if 'Type' in custom_df.columns:
+                required_df = custom_df[custom_df['Type'].str.lower() == 'required']
+                intensive_df = custom_df[custom_df['Type'].str.lower() == 'intensive']
+                st.session_state['target_courses'] = dict(zip(required_df['Course'].str.upper(), required_df['Credits']))
+                st.session_state['intensive_courses'] = dict(zip(intensive_df['Course'].str.upper(), intensive_df['Credits']))
+                st.success("Custom required and intensive courses loaded from CSV.")
+            else:
+                st.session_state['target_courses'] = dict(zip(custom_df['Course'].str.upper(), custom_df['Credits']))
+                st.session_state['intensive_courses'] = get_intensive_courses()
+                st.info("No 'Type' column found. Using default intensive courses and custom required courses.")
+        else:
+            st.error("CSV must contain 'Course' and 'Credits' columns.")
+    else:
+        st.session_state['target_courses'] = get_default_target_courses()
+        st.session_state['intensive_courses'] = get_intensive_courses()
+        st.info("Using default required and intensive courses.")
 
-    st.markdown("### Intensive Courses")
-    intensive_courses_df = pd.DataFrame(
-        list(intensive_courses.items()), columns=["Course", "Credits"]
-    )
-    st.dataframe(intensive_courses_df.drop(columns=["Credits"]), use_container_width=True)
+    st.success("Courses are now set. Proceed to 'View Reports' to see the processed data.")
