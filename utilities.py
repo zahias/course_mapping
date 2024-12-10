@@ -27,7 +27,7 @@ def load_excel(filepath, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return None
 
-# New database utility functions
+# Database utility functions
 
 def init_db(db_name='assignments.db'):
     conn = sqlite3.connect(db_name)
