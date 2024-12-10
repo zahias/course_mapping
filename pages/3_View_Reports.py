@@ -152,7 +152,7 @@ else:
         if st.button("Reset All Assignments", help="Clears all saved S.C.E. and F.E.C. assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
-            st.experimental_rerun()
+            st.rerun()
 
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
 
@@ -187,7 +187,7 @@ else:
             if st.button("Save Assignments", help="Save the updated S.C.E./F.E.C. assignments to Google Drive"):
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
-                st.experimental_rerun()
+                st.rerun()
 
         # Chart for completed vs. remaining credits
         if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
