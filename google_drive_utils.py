@@ -1,31 +1,36 @@
-# google_drive_utils.py
-
-import os
 import io
+import streamlit as st
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-# Define the scopes
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def authenticate_google_drive():
-    creds = None
-    token_path = 'token.json'
-    credentials_path = 'credentials.json'
+    # Build credentials from st.secrets. We assume the user has added:
+    # [google]
+    # client_id = "YOUR_GOOGLE_CLIENT_ID"
+    # client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+    # refresh_token = "YOUR_REFRESH_TOKEN"
+    # token_uri = "https://oauth2.googleapis.com/token"
 
-    if os.path.exists(token_path):
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(token_path, 'w') as token:
-            token.write(creds.to_json())
+    client_id = st.secrets["google"]["client_id"]
+    client_secret = st.secrets["google"]["client_secret"]
+    refresh_token = st.secrets["google"]["refresh_token"]
+    token_uri = st.secrets["google"].get("token_uri", "https://oauth2.googleapis.com/token")
+
+    creds = Credentials(
+        None,
+        refresh_token=refresh_token,
+        token_uri=token_uri,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES
+    )
+    # Refresh if needed
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+
     return creds
 
 def upload_file(service, file_path, file_name, folder_id=None):
@@ -48,6 +53,7 @@ def download_file(service, file_id, file_path):
     done = False
     while not done:
         status, done = downloader.next_chunk()
+
     fh.close()
 
 def search_file(service, file_name, folder_id=None):

@@ -1,6 +1,5 @@
 import streamlit as st
 
-# Set page config here only
 st.set_page_config(page_title="Phoenicia University Student Progress Tracker", layout="wide")
 
 st.image("pu_logo.png", width=120)

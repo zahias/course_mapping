@@ -2,8 +2,6 @@ import pandas as pd
 import streamlit as st
 
 def read_progress_report(filepath):
-    # Existing logic from previous steps remains, no major changes required
-    # Just ensure it returns df in the correct format
     try:
         if filepath.lower().endswith('.xlsx') or filepath.lower().endswith('.xls'):
             xls = pd.ExcelFile(filepath)
@@ -160,7 +158,7 @@ def process_progress_report(
 
 def determine_course_value(grade, course, courses_dict, grading_system):
     if pd.isna(grade):
-        return 'NR'  # Not Registered
+        return 'NR'
     elif grade == '':
         return f'CR | {courses_dict[course]}'
     else:
