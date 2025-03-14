@@ -7,16 +7,30 @@ from data_processing import (
     save_report_with_formatting,
     read_equivalent_courses
 )
-from ui_components import display_dataframes, add_sce_fec_selection
+from ui_components import display_dataframes, add_assignment_selection
 from logging_utils import log_action
-from google_drive_utils import authenticate_google_drive, download_file
+from google_drive_utils import authenticate_google_drive, download_file, search_file
+from googleapiclient.discovery import build
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from config import get_default_grading_system
+from config import get_default_grading_system, get_allowed_assignment_types
 
 st.title("View Reports")
 st.markdown("---")
+
+if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
+    try:
+        creds = authenticate_google_drive()
+        service = build('drive', 'v3', credentials=creds)
+        file_id = search_file(service, "equivalent_courses.csv")
+        if file_id:
+            download_file(service, file_id, "equivalent_courses.csv")
+            st.success("Equivalent courses reloaded successfully.")
+        else:
+            st.error("Equivalent courses file not found on Google Drive.")
+    except Exception as e:
+        st.error(f"Error reloading equivalent courses: {e}")
 
 if 'raw_df' not in st.session_state:
     st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
@@ -140,10 +154,10 @@ else:
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Not Completed/Not Counted courses")
 
-        st.subheader("Assign S.C.E. and F.E.C. Courses")
-        st.markdown("Select one S.C.E. and one F.E.C. course per student from extra courses.")
+        st.subheader("Assign Courses")
+        st.markdown("Select one course per student for each assignment type from extra courses.")
 
-        if st.button("Reset All Assignments", help="Clears all saved S.C.E. and F.E.C. assignments"):
+        if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.rerun()
@@ -151,18 +165,18 @@ else:
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
 
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
-        extra_courses_df['S.C.E.'] = False
-        extra_courses_df['F.E.C.'] = False
+        allowed_assignment_types = get_allowed_assignment_types()
+        for assign_type in allowed_assignment_types:
+            extra_courses_df[assign_type] = False
 
         for idx, row in extra_courses_df.iterrows():
             student_id = row['ID']
             course = row['Course']
             if student_id in per_student_assignments:
                 assignments = per_student_assignments[student_id]
-                if assignments.get('S.C.E.') == course:
-                    extra_courses_df.at[idx, 'S.C.E.'] = True
-                if assignments.get('F.E.C.') == course:
-                    extra_courses_df.at[idx, 'F.E.C.'] = True
+                for assign_type in allowed_assignment_types:
+                    if assignments.get(assign_type) == course:
+                        extra_courses_df.at[idx, assign_type] = True
 
         if search_student:
             extra_courses_df = extra_courses_df[
@@ -170,7 +184,7 @@ else:
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
 
-        edited_extra_courses_df = add_sce_fec_selection(extra_courses_df)
+        edited_extra_courses_df = add_assignment_selection(extra_courses_df)
         errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
 
         if errors:
@@ -178,7 +192,7 @@ else:
             for error in errors:
                 st.write(f"- {error}")
         else:
-            if st.button("Save Assignments", help="Save the updated S.C.E./F.E.C. assignments to Google Drive"):
+            if st.button("Save Assignments", help="Save the updated assignments to Google Drive"):
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
                 st.rerun()

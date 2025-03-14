@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from config import get_default_target_courses, get_intensive_courses
+from config import get_default_target_courses, get_intensive_courses, get_allowed_assignment_types, save_assignment_types
 
 st.title("Customize Courses")
 st.markdown("---")
@@ -49,3 +49,14 @@ else:
         st.info("Using default required and intensive courses.")
 
     st.success("Courses are now set. Proceed to 'View Reports' to see the processed data.")
+
+# New: Assignment Types Configuration Section
+with st.expander("Assignment Types Configuration", expanded=True):
+    st.write("Edit the list of assignment types that can be assigned to courses. For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses.")
+    default_types = get_allowed_assignment_types()
+    assignment_types_str = st.text_input("Enter assignment types (comma separated)", value=", ".join(default_types))
+    if st.button("Save Assignment Types"):
+        new_types = [x.strip() for x in assignment_types_str.split(",") if x.strip()]
+        st.session_state["allowed_assignment_types"] = new_types
+        save_assignment_types(new_types)
+        st.success("Assignment types updated.")

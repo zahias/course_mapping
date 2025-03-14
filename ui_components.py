@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from config import get_allowed_assignment_types
 
 def display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df):
     tab1, tab2, tab3 = st.tabs(["Required Courses", "Intensive Courses", "Extra Courses"])
@@ -7,24 +8,22 @@ def display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df):
         st.subheader("Required Courses Progress Report")
         st.markdown("Courses needed to fulfill the curriculum requirements.")
         st.dataframe(styled_df, use_container_width=True)
-        st.markdown("*Courses assigned as S.C.E. or F.E.C. are included here once selected.*")
-
+        st.markdown("*Courses assigned as special or elective assignments are included here once selected.*")
     with tab2:
         st.subheader("Intensive Courses Progress Report")
         st.markdown("These are intensive courses required for the curriculum.")
         st.dataframe(intensive_styled_df, use_container_width=True)
         st.markdown("*Intensive courses are displayed separately.*")
-
     with tab3:
         st.subheader("Extra Courses Detailed View")
-        st.markdown("Courses that are not part of the main or intensive list. They may be assigned as S.C.E. or F.E.C.")
+        st.markdown("Courses that are not part of the main or intensive list. They may be assigned as special or elective assignments.")
         st.dataframe(extra_courses_df, use_container_width=True)
 
-def add_sce_fec_selection(extra_courses_df):
-    assignment_columns = ['ID', 'NAME', 'Course', 'Grade', 'S.C.E.', 'F.E.C.']
+def add_assignment_selection(extra_courses_df):
+    allowed_assignment_types = get_allowed_assignment_types()
+    assignment_columns = ['ID', 'NAME', 'Course', 'Grade'] + allowed_assignment_types
     extra_courses_assignment_df = extra_courses_df[assignment_columns]
-
-    st.write("Below are extra courses. Check the boxes for S.C.E. or F.E.C. as needed:")
+    st.write("Below are extra courses. Check the boxes for assignment types as needed:")
     edited_df = st.data_editor(
         extra_courses_assignment_df,
         num_rows="dynamic",

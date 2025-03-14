@@ -1,4 +1,26 @@
-# config.py
+import streamlit as st
+import json
+import os
+
+ASSIGNMENT_TYPES_FILE = "assignment_types.json"
+
+def load_assignment_types():
+    if os.path.exists(ASSIGNMENT_TYPES_FILE):
+        try:
+            with open(ASSIGNMENT_TYPES_FILE, "r") as f:
+                data = json.load(f)
+            return data
+        except Exception as e:
+            st.error(f"Error loading assignment types: {e}")
+            return ["S.C.E", "F.E.C"]
+    return ["S.C.E", "F.E.C"]
+
+def save_assignment_types(assignment_types):
+    try:
+        with open(ASSIGNMENT_TYPES_FILE, "w") as f:
+            json.dump(assignment_types, f)
+    except Exception as e:
+        st.error(f"Error saving assignment types: {e}")
 
 def get_default_target_courses():
     return {
@@ -29,3 +51,12 @@ def get_intensive_courses():
         'MATH101': 3,
         'MATH102': 3
     }
+
+def get_allowed_assignment_types():
+    """
+    Returns the list of assignment types that can be used.
+    On first load, it reads from a persistent file.
+    """
+    if "allowed_assignment_types" not in st.session_state:
+        st.session_state["allowed_assignment_types"] = load_assignment_types()
+    return st.session_state["allowed_assignment_types"]
