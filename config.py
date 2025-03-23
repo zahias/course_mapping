@@ -1,26 +1,4 @@
 import streamlit as st
-import json
-import os
-
-ASSIGNMENT_TYPES_FILE = "assignment_types.json"
-
-def load_assignment_types():
-    if os.path.exists(ASSIGNMENT_TYPES_FILE):
-        try:
-            with open(ASSIGNMENT_TYPES_FILE, "r") as f:
-                data = json.load(f)
-            return data
-        except Exception as e:
-            st.error(f"Error loading assignment types: {e}")
-            return ["S.C.E", "F.E.C"]
-    return ["S.C.E", "F.E.C"]
-
-def save_assignment_types(assignment_types):
-    try:
-        with open(ASSIGNMENT_TYPES_FILE, "w") as f:
-            json.dump(assignment_types, f)
-    except Exception as e:
-        st.error(f"Error saving assignment types: {e}")
 
 def get_default_target_courses():
     return {
@@ -55,8 +33,26 @@ def get_intensive_courses():
 def get_allowed_assignment_types():
     """
     Returns the list of assignment types that can be used.
-    On first load, it reads from a persistent file.
+    If the user has set a custom list via the UI, that list is returned.
+    Otherwise, default types are used.
     """
-    if "allowed_assignment_types" not in st.session_state:
-        st.session_state["allowed_assignment_types"] = load_assignment_types()
-    return st.session_state["allowed_assignment_types"]
+    if "allowed_assignment_types" in st.session_state:
+        return st.session_state["allowed_assignment_types"]
+    return ["S.C.E", "F.E.C"]
+
+def get_course_passing_thresholds():
+    """
+    Returns a dictionary mapping course codes to the minimum passing grade.
+    For courses not specified here, the default passing grade is "D-".
+    
+    For example:
+      - For ARAB201, you might require a grade above C (i.e. at least C+).
+      - For many courses, D- might be acceptable.
+    Adjust these values as needed.
+    """
+    return {
+        'ARAB201': 'C+',  # For ARAB201, a student must earn at least a C+.
+        'F.E.C': 'D-',    # For F.E.C and S.C.E, default passing is D-.
+        'S.C.E': 'D-'
+        # Other courses will use the default of "D-"
+    }

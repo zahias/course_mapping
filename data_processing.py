@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from config import get_allowed_assignment_types
+from config import get_allowed_assignment_types, get_course_passing_thresholds
 
 def read_progress_report(filepath):
     try:
@@ -15,7 +15,6 @@ def read_progress_report(filepath):
                 return df
             else:
                 st.info("No 'Progress Report' sheet found. Attempting to process the file as a wide format.")
-                # Read the first sheet by default and attempt transformation
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
@@ -23,7 +22,6 @@ def read_progress_report(filepath):
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
-            # If expected columns exist, return as is; otherwise, try wide format
             if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
                 return df
             else:
@@ -95,7 +93,6 @@ def process_progress_report(
 
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
 
-    # Apply dynamic assignment mapping for any allowed assignment type
     if per_student_assignments:
         allowed_assignment_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -161,6 +158,25 @@ def process_progress_report(
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict, grading_system):
+    """
+    Determines the course value by checking if a counted grade exists AND
+    whether the best counted grade meets the course-specific passing threshold.
+    If no grade is present, returns 'NR' (Not Registered). If currently registered,
+    returns 'CR | <credits>'. Otherwise, returns a string with all grades and
+    the credit amount if passed, or 0 if not passed.
+    """
+    # Define a ranking for comparison (higher number is better)
+    grade_ranking = {
+        'A+': 14, 'A': 13, 'A-': 12,
+        'B+': 11, 'B': 10, 'B-': 9,
+        'C+': 8, 'C': 7, 'C-': 6,
+        'D+': 5, 'D': 4, 'D-': 3,
+        'T': 2, 'F': 1
+    }
+    # Get the passing threshold for the course; default is "D-"
+    thresholds = get_course_passing_thresholds()
+    threshold = thresholds.get(course, 'D-')
+    
     if pd.isna(grade):
         return 'NR'
     elif grade == '':
@@ -173,10 +189,19 @@ def determine_course_value(grade, course, courses_dict, grading_system):
         if not counted_grades:
             return f'{all_grades} | 0'
         else:
+            # Determine the best (highest ranked) counted grade
+            best = max(counted_grades, key=lambda g: grade_ranking.get(g, 0))
             counted_credits = courses_dict[course]
-            return f'{all_grades} | {counted_credits}'
+            if grade_ranking.get(best, 0) >= grade_ranking.get(threshold, 0):
+                return f'{all_grades} | {counted_credits}'
+            else:
+                return f'{all_grades} | 0'
 
 def calculate_credits(row, courses_dict, grading_system):
+    """
+    Calculates the number of credits completed, registered, remaining, and total.
+    Now uses the credit value (after the pipe) from determine_course_value.
+    """
     completed, registered, remaining = 0, 0, 0
     total_credits = sum(courses_dict.values())
 
@@ -190,15 +215,19 @@ def calculate_credits(row, courses_dict, grading_system):
                 remaining += courses_dict[course]
             else:
                 parts = value.split('|')
-                grades_part = parts[0].strip()
-                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                if any(grade in grading_system['Counted'] for grade in grades_list):
-                    completed += courses_dict[course]
+                if len(parts) > 1:
+                    try:
+                        assigned_credits = int(parts[1].strip())
+                    except:
+                        assigned_credits = 0
+                    if assigned_credits > 0:
+                        completed += courses_dict[course]
+                    else:
+                        remaining += courses_dict[course]
                 else:
                     remaining += courses_dict[course]
         else:
             remaining += courses_dict[course]
-
     return pd.Series([completed, registered, remaining, total_credits],
                      index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
 
