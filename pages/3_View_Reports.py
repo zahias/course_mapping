@@ -42,7 +42,9 @@ else:
     if target_courses is None or intensive_courses is None:
         st.warning("Courses not defined yet. Go to 'Customize Courses'.")
     else:
-        default_grading_system = get_default_grading_system()
+        # Use the default grading system without any multiselect overrides.
+        grading_system = get_default_grading_system()
+
         per_student_assignments = load_assignments()
 
         eq_df = None
@@ -54,30 +56,20 @@ else:
             df,
             target_courses,
             intensive_courses,
-            default_grading_system,
+            grading_system,
             per_student_assignments,
             equivalent_courses_mapping
         )
 
         credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses, default_grading_system), axis=1
+            lambda row: calculate_credits(row, target_courses, grading_system), axis=1
         )
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
 
         intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses, default_grading_system), axis=1
+            lambda row: calculate_credits(row, intensive_courses, grading_system), axis=1
         )
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
-
-        all_possible_grades = default_grading_system['Counted'] + default_grading_system['Not Counted']
-        counted_grades = st.multiselect(
-            "Select Counted Grades",
-            options=all_possible_grades,
-            default=default_grading_system['Counted'],
-            help="Grades selected here will count towards completion."
-        )
-        not_counted_grades = [g for g in all_possible_grades if g not in counted_grades]
-        grading_system = {'Counted': counted_grades, 'Not Counted': not_counted_grades}
 
         grade_toggle = st.checkbox(
             "Show All Grades",
@@ -132,14 +124,13 @@ else:
                     lambda x: extract_primary_grade(x, grading_system, grade_toggle)
                 )
 
-        # Updated color_format: determine cell color based on the credit value
         def color_format(val):
             if isinstance(val, str) and '|' in val:
                 parts = val.split('|')
                 grade_part = parts[0].strip()
                 credit_part = parts[1].strip()
                 if grade_part.upper().startswith('CR'):
-                    return 'background-color: #FFFACD'  # light yellow
+                    return 'background-color: #FFFACD'
                 if credit_part == '0':
                     return 'background-color: pink'
                 else:
@@ -186,6 +177,7 @@ else:
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
 
+        from ui_components import add_assignment_selection
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
         errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
 
@@ -230,7 +222,6 @@ else:
             for f in ["equivalent_courses.csv", "sce_fec_assignments.csv", "app.log"]:
                 if os.path.exists(f):
                     shutil.copy(f, backup_folder)
-
         if st.button("Perform Manual Backup", help="Create a timestamped backup of key files"):
             backup_files()
             st.success("Backup completed.")
