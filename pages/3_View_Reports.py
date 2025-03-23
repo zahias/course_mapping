@@ -141,6 +141,7 @@ else:
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
 
+        from ui_components import add_assignment_selection
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
         errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
 
