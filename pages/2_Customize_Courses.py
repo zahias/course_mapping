@@ -12,7 +12,7 @@ st.write(
     "The 'CountedGrades' column should list, separated by commas, the grades that count as passing for that course."
 )
 
-# Place the Equivalent Courses expander at the top level (not nested)
+# Equivalent Courses reloader (top-level)
 with st.expander("Equivalent Courses", expanded=True):
     if st.button("Reload Equivalent Courses", help="Reload equivalent courses mapping from Google Drive"):
         try:
@@ -29,7 +29,6 @@ with st.expander("Equivalent Courses", expanded=True):
 
 with st.expander("Course Customization Options", expanded=True):
     uploaded_courses = st.file_uploader("Upload Custom Courses (CSV)", type="csv", help="Use the template below.")
-    
     if st.button("Download Template", help="Download a CSV template for courses configuration."):
         template_df = pd.DataFrame({
             'Course': ['ENGL201', 'CHEM201', 'ARAB201', 'MATH101'],
@@ -40,18 +39,15 @@ with st.expander("Course Customization Options", expanded=True):
                 'A, A-',
                 'A, A-, B+, B, B-, C+'
             ],
-            'Type': ['Required', 'Required', 'Required', 'Required']  # or 'Intensive'
+            'Type': ['Required', 'Required', 'Required', 'Required']
         })
         csv_data = template_df.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV Template", data=csv_data, file_name='courses_template.csv', mime='text/csv')
     
-    # Process uploaded file or load from local if available.
     if uploaded_courses is not None:
         try:
             custom_df = pd.read_csv(uploaded_courses)
-            # Save locally
             custom_df.to_csv("courses_config.csv", index=False)
-            # Sync to Google Drive
             try:
                 creds = authenticate_google_drive()
                 service = build('drive', 'v3', credentials=creds)
@@ -105,7 +101,6 @@ with st.expander("Course Customization Options", expanded=True):
 
 st.success("Courses are now set. Proceed to 'View Reports' to see the processed data.")
 
-# Assignment Types Configuration remains as before.
 with st.expander("Assignment Types Configuration", expanded=True):
     st.write("Edit the list of assignment types that can be assigned to courses. For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses.")
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])

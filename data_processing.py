@@ -3,70 +3,63 @@ import streamlit as st
 
 def read_progress_report(filepath):
     try:
-        if filepath.lower().endswith('.xlsx') or filepath.lower().endswith('.xls'):
+        if filepath.lower().endswith(('.xlsx', '.xls')):
             xls = pd.ExcelFile(filepath)
             if 'Progress Report' in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name='Progress Report')
                 required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
                 if not required_columns.issubset(df.columns):
-                    st.error(f"The following required columns are missing in the 'Progress Report' sheet: {required_columns - set(df.columns)}")
+                    st.error(f"Missing columns: {required_columns - set(df.columns)}")
                     return None
                 return df
             else:
-                st.info("No 'Progress Report' sheet found. Attempting to process the file as a wide format.")
+                st.info("No 'Progress Report' sheet found. Processing as wide format.")
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
-                    st.error("Failed to transform the file in wide format. Please ensure the file matches the expected structure.")
+                    st.error("Failed to transform file in wide format.")
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
             if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
                 return df
             else:
-                st.info("CSV file does not contain the expected columns. Attempting to process as wide format.")
+                st.info("CSV missing expected columns. Processing as wide format.")
                 df = transform_wide_format(df)
                 return df
         else:
-            st.error("File format not recognized. Please upload an Excel or CSV file.")
+            st.error("File format not recognized. Please upload Excel or CSV.")
             return None
     except Exception as e:
-        st.error(f"An error occurred while reading the file: {e}")
+        st.error(f"Error reading file: {e}")
         return None
 
 def transform_wide_format(df):
     if 'STUDENT ID' not in df.columns or not any(col.startswith('COURSE') for col in df.columns):
-        st.error("The provided file does not match the expected wide format (missing 'STUDENT ID' or COURSE columns).")
+        st.error("File does not match expected wide format (missing 'STUDENT ID' or COURSE columns).")
         return None
-
     course_cols = [c for c in df.columns if c.startswith('COURSE')]
     id_vars = [c for c in df.columns if c not in course_cols]
-
     df_melted = df.melt(id_vars=id_vars, var_name='Course_Column', value_name='CourseData')
     df_melted = df_melted[df_melted['CourseData'].notnull() & (df_melted['CourseData'] != '')]
-
     split_cols = df_melted['CourseData'].str.split('/', expand=True)
     if split_cols.shape[1] < 3:
         st.error("Could not parse course data. Expected format: COURSECODE/SEMESTER-YEAR/GRADE.")
         return None
-
     df_melted['Course'] = split_cols[0].str.strip().str.upper()
     df_melted['Semester_Year'] = split_cols[1].str.strip()
     df_melted['Grade'] = split_cols[2].str.strip().str.upper()
-
     sem_year_split = df_melted['Semester_Year'].str.split('-', expand=True)
     if sem_year_split.shape[1] < 2:
-        st.error("Semester-Year format not recognized. Expected something like FALL-2016.")
+        st.error("Semester-Year format not recognized.")
         return None
     df_melted['Semester'] = sem_year_split[0].str.strip().str.title()
     df_melted['Year'] = sem_year_split[1].str.strip()
-
     df_melted = df_melted.rename(columns={'STUDENT ID': 'ID', 'NAME': 'NAME'})
     required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
     if not required_columns.issubset(df_melted.columns):
-        st.error(f"The transformed data is missing some required columns: {required_columns - set(df_melted.columns)}")
+        st.error(f"Missing columns after transform: {required_columns - set(df_melted.columns)}")
         return None
-
     df_final = df_melted[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']].drop_duplicates()
     return df_final
 
@@ -74,85 +67,50 @@ def read_equivalent_courses(equivalent_courses_df):
     mapping = {}
     for idx, row in equivalent_courses_df.iterrows():
         primary_course = row['Course'].strip().upper()
-        equivalents = [course.strip().upper() for course in str(row['Equivalent']).split(',')]
-        for eq_course in equivalents:
-            mapping[eq_course] = primary_course
+        equivalents = [course.strip().upper() for course in str(row.get('Equivalent', '')).split(',')]
+        for eq in equivalents:
+            mapping[eq] = primary_course
     return mapping
 
-def process_progress_report(
-    df,
-    target_courses,
-    intensive_courses,
-    per_student_assignments=None,
-    equivalent_courses_mapping=None
-):
+def process_progress_report(df, target_courses, intensive_courses, per_student_assignments=None, equivalent_courses_mapping=None):
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
-
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
-
     from config import get_allowed_assignment_types
     if per_student_assignments:
         allowed_assignment_types = get_allowed_assignment_types()
         def map_assignment(row):
             student_id = str(row['ID'])
             course = row['Course']
-            mapped_course = row['Mapped Course']
+            mapped = row['Mapped Course']
             if student_id in per_student_assignments:
-                assignments = per_student_assignments[student_id]
-                for assign_type in allowed_assignment_types:
-                    if assignments.get(assign_type) == course:
-                        return assign_type
-            return mapped_course
+                assigns = per_student_assignments[student_id]
+                for atype in allowed_assignment_types:
+                    if assigns.get(atype) == course:
+                        return atype
+            return mapped
         df['Mapped Course'] = df.apply(map_assignment, axis=1)
-
-    extra_courses_df = df[
-        (~df['Mapped Course'].isin(target_courses.keys())) &
-        (~df['Mapped Course'].isin(intensive_courses.keys()))
-    ]
+    extra_courses_df = df[(~df['Mapped Course'].isin(target_courses.keys())) & (~df['Mapped Course'].isin(intensive_courses.keys()))]
     target_df = df[df['Mapped Course'].isin(target_courses.keys())]
     intensive_df = df[df['Mapped Course'].isin(intensive_courses.keys())]
-
-    pivot_df = target_df.pivot_table(
-        index=['ID', 'NAME'],
-        columns='Mapped Course',
-        values='Grade',
-        aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))
-    ).reset_index()
-
-    intensive_pivot_df = intensive_df.pivot_table(
-        index=['ID', 'NAME'],
-        columns='Mapped Course',
-        values='Grade',
-        aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))
-    ).reset_index()
-
+    pivot_df = target_df.pivot_table(index=['ID','NAME'], columns='Mapped Course', values='Grade', aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))).reset_index()
+    intensive_pivot_df = intensive_df.pivot_table(index=['ID','NAME'], columns='Mapped Course', values='Grade', aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))).reset_index()
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
-        pivot_df[course] = pivot_df[course].apply(
-            lambda grade: determine_course_value(grade, course, target_courses)
-        )
-
+        pivot_df[course] = pivot_df[course].apply(lambda grade: determine_course_value(grade, course, target_courses))
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
             intensive_pivot_df[course] = None
-        intensive_pivot_df[course] = intensive_pivot_df[course].apply(
-            lambda grade: determine_course_value(grade, course, intensive_courses)
-        )
-
-    result_df = pivot_df[['ID', 'NAME'] + list(target_courses.keys())]
-    intensive_result_df = intensive_pivot_df[['ID', 'NAME'] + list(intensive_courses.keys())]
-
+        intensive_pivot_df[course] = intensive_pivot_df[course].apply(lambda grade: determine_course_value(grade, course, intensive_courses))
+    result_df = pivot_df[['ID','NAME'] + list(target_courses.keys())]
+    intensive_result_df = intensive_pivot_df[['ID','NAME'] + list(intensive_courses.keys())]
     if per_student_assignments:
-        assigned_courses = []
-        for student_id, assignments in per_student_assignments.items():
-            for assign_type, course in assignments.items():
-                assigned_courses.append((student_id, course))
-        extra_courses_df = extra_courses_df[
-            ~extra_courses_df.apply(lambda row: (str(row['ID']), row['Course']) in assigned_courses, axis=1)
-        ]
-
+        assigned = []
+        for sid, assigns in per_student_assignments.items():
+            for atype, course in assigns.items():
+                assigned.append((sid, course))
+        extra_courses_df = extra_courses_df[~extra_courses_df.apply(lambda row: (str(row['ID']), row['Course']) in assigned, axis=1)]
     extra_courses_list = sorted(extra_courses_df['Course'].unique())
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
@@ -166,37 +124,38 @@ def determine_course_value(grade, course, courses_config):
         grades_cleaned = [g.strip() for g in grades if g.strip()]
         all_grades = ', '.join(grades_cleaned)
         allowed = courses_config[course]["counted_grades"]
-        if not any(g in allowed for g in grades_cleaned):
+        allowed_upper = [g.upper() for g in allowed]
+        grades_upper = [g.upper() for g in grades_cleaned]
+        if not any(g in allowed_upper for g in grades_upper):
             return f'{all_grades} | 0'
         else:
             return f'{all_grades} | {courses_config[course]["credits"]}'
 
 def calculate_credits(row, courses_config):
     completed, registered, remaining = 0, 0, 0
-    total_credits = sum(courses_config[course]["credits"] for course in courses_config)
-
+    total = sum(courses_config[course]["credits"] for course in courses_config)
     for course in courses_config:
         value = row.get(course, '')
         if isinstance(value, str):
-            value_upper = value.upper()
-            if value_upper.startswith('CR'):
+            val_up = value.upper()
+            if val_up.startswith('CR'):
                 registered += courses_config[course]["credits"]
-            elif value_upper.startswith('NR'):
+            elif val_up.startswith('NR'):
                 remaining += courses_config[course]["credits"]
             else:
                 parts = value.split('|')
                 grades_part = parts[0].strip()
                 grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
                 allowed = courses_config[course]["counted_grades"]
-                if any(grade in allowed for grade in grades_list):
+                allowed_upper = [g.upper() for g in allowed]
+                grades_upper = [g.upper() for g in grades_list]
+                if any(g in allowed_upper for g in grades_upper):
                     completed += courses_config[course]["credits"]
                 else:
                     remaining += courses_config[course]["credits"]
         else:
             remaining += courses_config[course]["credits"]
-
-    return pd.Series([completed, registered, remaining, total_credits],
-                     index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
+    return pd.Series([completed, registered, remaining, total], index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, courses_config):
     import io
@@ -207,11 +166,10 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
     output = io.BytesIO()
     workbook = Workbook()
 
-    # Set up sheet for Required Courses
+    # Required Courses sheet
     ws_required = workbook.active
     ws_required.title = "Required Courses"
 
-    # Define fill colors
     green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
     pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
     yellow_fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
@@ -224,7 +182,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
-                header = headers[c_idx - 1]
+                header = headers[c_idx-1]
                 if header in courses_config:
                     txt = str(value).strip() if value is not None else ""
                     txt_upper = txt.upper()
@@ -235,22 +193,17 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                     elif txt.lower() == "c":
                         cell.fill = green_fill
                     else:
-                        # Extract the grade(s) portion before any " | " separator.
-                        if " | " in txt:
-                            grades_str = txt.split(" | ")[0].strip()
-                        else:
-                            grades_str = txt
-                        # Compare in uppercase to ignore case differences.
+                        grades_str = txt.split(" | ")[0].strip()  # take part before pipe if present
                         grades = [g.strip().upper() for g in grades_str.split(",") if g.strip()]
                         allowed_grades = [g.strip().upper() for g in courses_config[header]["counted_grades"]]
-                        if grades and any(grade in allowed_grades for grade in grades):
+                        if grades and any(g in allowed_grades for g in grades):
                             cell.fill = green_fill
                         else:
                             cell.fill = pink_fill
                 else:
                     cell.fill = None
 
-    # Set up sheet for Intensive Courses
+    # Intensive Courses sheet
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     headers_intensive = list(intensive_displayed_df.columns)
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
@@ -260,7 +213,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
-                header = headers_intensive[c_idx - 1]
+                header = headers_intensive[c_idx-1]
                 if header in courses_config:
                     txt = str(value).strip() if value is not None else ""
                     txt_upper = txt.upper()
@@ -271,13 +224,10 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                     elif txt.lower() == "c":
                         cell.fill = green_fill
                     else:
-                        if " | " in txt:
-                            grades_str = txt.split(" | ")[0].strip()
-                        else:
-                            grades_str = txt
+                        grades_str = txt.split(" | ")[0].strip()
                         grades = [g.strip().upper() for g in grades_str.split(",") if g.strip()]
                         allowed_grades = [g.strip().upper() for g in courses_config[header]["counted_grades"]]
-                        if grades and any(grade in allowed_grades for grade in grades):
+                        if grades and any(g in allowed_grades for g in grades):
                             cell.fill = green_fill
                         else:
                             cell.fill = pink_fill

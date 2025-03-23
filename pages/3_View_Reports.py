@@ -37,44 +37,25 @@ else:
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
-            df,
-            target_courses,
-            intensive_courses,
-            per_student_assignments,
-            equivalent_courses_mapping
+            df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
         )
 
-        credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses), axis=1
-        )
+        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
 
-        intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses), axis=1
-        )
+        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
         allowed_assignment_types = get_allowed_assignment_types()
-        grade_toggle = st.checkbox(
-            "Show All Grades",
-            value=False,
-            help="If checked, display all grades for each course."
-        )
-        completed_toggle = st.checkbox(
-            "Show Completed/Not Completed Only",
-            value=False,
-            help="If checked, shows 'c' if completed and '' if not instead of actual grades."
-        )
+        grade_toggle = st.checkbox("Show All Grades", value=False, help="Display all grades for each course.")
+        completed_toggle = st.checkbox("Show Completed/Not Completed Only", value=False, help="Shows 'c' if completed and '' if not instead of actual grades.")
 
         def extract_primary_grade(value, courses_config, show_all_grades):
             if isinstance(value, str):
                 parts = value.split(' | ')
                 grades_part = parts[0]
                 grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                if show_all_grades:
-                    return ', '.join(grades_list)
-                else:
-                    return grades_list[0] if grades_list else ''
+                return ', '.join(grades_list) if show_all_grades else (grades_list[0] if grades_list else '')
             return value
 
         displayed_df = required_courses_df.copy()
@@ -82,28 +63,20 @@ else:
 
         if completed_toggle:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(
-                        (g.strip() in target_courses[course]["counted_grades"]) or ('CR' in g.strip().upper())
-                        for g in x.split(' | ')[0].split(',') if g.strip()
-                    ) else ''
-                )
+                displayed_df[course] = displayed_df[course].apply(lambda x: 'c' if isinstance(x, str) and any(
+                    (g.strip() in target_courses[course]["counted_grades"]) or ('CR' in g.strip().upper())
+                    for g in x.split(' | ')[0].split(',') if g.strip()
+                ) else '')
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(
-                        (g.strip() in intensive_courses[course]["counted_grades"]) or ('CR' in g.strip().upper())
-                        for g in x.split(' | ')[0].split(',') if g.strip()
-                    ) else ''
-                )
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: 'c' if isinstance(x, str) and any(
+                    (g.strip() in intensive_courses[course]["counted_grades"]) or ('CR' in g.strip().upper())
+                    for g in x.split(' | ')[0].split(',') if g.strip()
+                ) else '')
         else:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda x: extract_primary_grade(x, target_courses, grade_toggle)
-                )
+                displayed_df[course] = displayed_df[course].apply(lambda x: extract_primary_grade(x, target_courses, grade_toggle))
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: extract_primary_grade(x, intensive_courses, grade_toggle)
-                )
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: extract_primary_grade(x, intensive_courses, grade_toggle))
 
         display_dataframes(displayed_df.style, intensive_displayed_df.style, extra_courses_df, df)
 
@@ -157,29 +130,20 @@ else:
 
         if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
             summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
-            fig = px.bar(
-                summary_df,
-                x='NAME',
-                y=['# of Credits Completed', '# Remaining'],
-                barmode='group',
-                title="Completed vs. Remaining Credits per Student"
-            )
+            fig = px.bar(summary_df, x='NAME', y=['# of Credits Completed', '# Remaining'], barmode='group', title="Completed vs. Remaining Credits per Student")
             st.plotly_chart(fig, use_container_width=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Merge configurations for formatting.
         config_for_formatting = target_courses.copy()
         config_for_formatting.update(intensive_courses)
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, config_for_formatting)
         st.session_state['output'] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
 
-        st.download_button(
-            label="Download Processed Report",
-            data=st.session_state['output'],
-            file_name="student_progress_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button(label="Download Processed Report",
+                           data=st.session_state['output'],
+                           file_name="student_progress_report.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         import shutil, datetime
         def backup_files():
@@ -189,7 +153,6 @@ else:
             for f in ["equivalent_courses.csv", "sce_fec_assignments.csv", "app.log"]:
                 if os.path.exists(f):
                     shutil.copy(f, backup_folder)
-
         if st.button("Perform Manual Backup", help="Create a timestamped backup of key files"):
             backup_files()
             st.success("Backup completed.")
