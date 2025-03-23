@@ -19,8 +19,6 @@ from config import get_allowed_assignment_types
 st.title("View Reports")
 st.markdown("---")
 
-# (Reload Equivalent Courses button removed from here)
-
 if 'raw_df' not in st.session_state:
     st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
 else:
@@ -46,6 +44,7 @@ else:
             equivalent_courses_mapping
         )
 
+        # Calculate credits for required and intensive courses.
         credits_df = required_courses_df.apply(
             lambda row: calculate_credits(row, target_courses), axis=1
         )
@@ -68,35 +67,48 @@ else:
             help="If checked, shows 'c' if completed and '' if not instead of actual grades."
         )
 
-        # Define a per-column color formatting function based on the course's counted grades.
-        def make_color_format(course_config):
-            def formatter(val):
-                if isinstance(val, str):
-                    if val.upper().startswith("CR"):
-                        return "background-color: #FFFACD"  # light yellow
-                    parts = val.split("|")
-                    if parts:
-                        grades_part = parts[0].strip()
-                        grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                        if any(g in course_config["counted_grades"] for g in grades_list):
-                            return "background-color: lightgreen"
-                        else:
-                            return "background-color: pink"
-                return ""
-            return formatter
+        def extract_primary_grade(value, courses_config, show_all_grades):
+            if isinstance(value, str):
+                parts = value.split(' | ')
+                grades_part = parts[0]
+                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+                if show_all_grades:
+                    return ', '.join(grades_list)
+                else:
+                    return grades_list[0] if grades_list else ''
+            return value
 
-        # Apply formatting for required courses columns individually.
-        styled_df = required_courses_df.style
-        for course in target_courses:
-            if course in required_courses_df.columns:
-                styled_df = styled_df.applymap(make_color_format(target_courses[course]), subset=pd.IndexSlice[:, course])
-        intensive_styled_df = intensive_courses_df.style
-        for course in intensive_courses:
-            if course in intensive_courses_df.columns:
-                intensive_styled_df = intensive_styled_df.applymap(make_color_format(intensive_courses[course]), subset=pd.IndexSlice[:, course])
+        # Make copies for toggled display.
+        displayed_df = required_courses_df.copy()
+        intensive_displayed_df = intensive_courses_df.copy()
 
-        from ui_components import display_dataframes, add_assignment_selection
-        display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
+        if completed_toggle:
+            for course in target_courses:
+                displayed_df[course] = displayed_df[course].apply(
+                    lambda x: 'c' if isinstance(x, str) and any(
+                        (g.strip() in target_courses[course]["counted_grades"]) or ('CR' in g.strip().upper())
+                        for g in x.split(' | ')[0].split(',') if g.strip()
+                    ) else ''
+                )
+            for course in intensive_courses:
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
+                    lambda x: 'c' if isinstance(x, str) and any(
+                        (g.strip() in intensive_courses[course]["counted_grades"]) or ('CR' in g.strip().upper())
+                        for g in x.split(' | ')[0].split(',') if g.strip()
+                    ) else ''
+                )
+        else:
+            for course in target_courses:
+                displayed_df[course] = displayed_df[course].apply(
+                    lambda x: extract_primary_grade(x, target_courses, grade_toggle)
+                )
+            for course in intensive_courses:
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
+                    lambda x: extract_primary_grade(x, intensive_courses, grade_toggle)
+                )
+
+        # Display the processed dataframes.
+        display_dataframes(displayed_df.style, intensive_displayed_df.style, extra_courses_df, df)
 
         st.markdown("**Color Legend:**")
         st.markdown("- Light Green: Completed courses")
@@ -132,7 +144,6 @@ else:
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
 
-        from ui_components import add_assignment_selection
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
         errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
 
@@ -158,7 +169,8 @@ else:
             st.plotly_chart(fig, use_container_width=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = save_report_with_formatting(required_courses_df, intensive_courses_df, timestamp, target_courses)
+        # Use the toggled dataframes to generate the report.
+        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
         st.session_state['output'] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
 
