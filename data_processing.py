@@ -15,7 +15,6 @@ def read_progress_report(filepath):
                 return df
             else:
                 st.info("No 'Progress Report' sheet found. Attempting to process the file as a wide format.")
-                # Read the first sheet by default and attempt transformation
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
@@ -23,7 +22,6 @@ def read_progress_report(filepath):
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
-            # If expected columns exist, return as is; otherwise, try wide format
             if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
                 return df
             else:
@@ -95,7 +93,6 @@ def process_progress_report(
 
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
 
-    # Apply dynamic assignment mapping for any allowed assignment type
     if per_student_assignments:
         allowed_assignment_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -161,10 +158,11 @@ def process_progress_report(
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict, grading_system):
-    # Use custom passing grades if specified for this course
+    # Normalize the course code to uppercase
+    course_key = course.strip().upper()
     custom_passing = None
     if 'custom_passing_grades' in st.session_state:
-        custom_passing = st.session_state['custom_passing_grades'].get(course)
+        custom_passing = st.session_state['custom_passing_grades'].get(course_key)
     
     if pd.isna(grade):
         return 'NR'
@@ -188,6 +186,12 @@ def calculate_credits(row, courses_dict, grading_system):
     total_credits = sum(courses_dict.values())
 
     for course in courses_dict:
+        # Normalize course code to uppercase for lookup
+        course_key = course.strip().upper()
+        passing_grades = grading_system['Counted']
+        if 'custom_passing_grades' in st.session_state and course_key in st.session_state['custom_passing_grades']:
+            passing_grades = st.session_state['custom_passing_grades'][course_key]
+            
         value = row.get(course, '')
         if isinstance(value, str):
             value_upper = value.upper()
@@ -199,15 +203,17 @@ def calculate_credits(row, courses_dict, grading_system):
                 parts = value.split('|')
                 grades_part = parts[0].strip()
                 grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                if any(grade in grading_system['Counted'] for grade in grades_list):
+                if any(grade in passing_grades for grade in grades_list):
                     completed += courses_dict[course]
                 else:
                     remaining += courses_dict[course]
         else:
             remaining += courses_dict[course]
 
-    return pd.Series([completed, registered, remaining, total_credits],
-                     index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
+    return pd.Series(
+        [completed, registered, remaining, total_credits],
+        index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits']
+    )
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, grading_system):
     import io
