@@ -93,8 +93,10 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     extra_courses_df = df[(~df['Mapped Course'].isin(target_courses.keys())) & (~df['Mapped Course'].isin(intensive_courses.keys()))]
     target_df = df[df['Mapped Course'].isin(target_courses.keys())]
     intensive_df = df[df['Mapped Course'].isin(intensive_courses.keys())]
-    pivot_df = target_df.pivot_table(index=['ID','NAME'], columns='Mapped Course', values='Grade', aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))).reset_index()
-    intensive_pivot_df = intensive_df.pivot_table(index=['ID','NAME'], columns='Mapped Course', values='Grade', aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))).reset_index()
+    pivot_df = target_df.pivot_table(index=['ID','NAME'], columns='Mapped Course', values='Grade',
+                                      aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))).reset_index()
+    intensive_pivot_df = intensive_df.pivot_table(index=['ID','NAME'], columns='Mapped Course', values='Grade',
+                                                   aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))).reset_index()
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
@@ -193,7 +195,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                     elif txt.lower() == "c":
                         cell.fill = green_fill
                     else:
-                        grades_str = txt.split(" | ")[0].strip()  # take part before pipe if present
+                        grades_str = txt.split(" | ")[0].strip()
                         grades = [g.strip().upper() for g in grades_str.split(",") if g.strip()]
                         allowed_grades = [g.strip().upper() for g in courses_config[header]["counted_grades"]]
                         if grades and any(g in allowed_grades for g in grades):
