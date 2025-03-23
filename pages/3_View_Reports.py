@@ -132,16 +132,18 @@ else:
                     lambda x: extract_primary_grade(x, grading_system, grade_toggle)
                 )
 
+        # Updated color_format: determine cell color based on the credit value
         def color_format(val):
-            if isinstance(val, str):
-                value_upper = val.upper()
-                if value_upper.startswith('CR'):
-                    return 'background-color: #FFFACD'
-                grades_list = [g.strip() for g in val.split(',') if g.strip()]
-                if any(grade in grading_system['Counted'] or 'CR' == grade.upper() for grade in grades_list):
-                    return 'background-color: lightgreen'
-                else:
+            if isinstance(val, str) and '|' in val:
+                parts = val.split('|')
+                grade_part = parts[0].strip()
+                credit_part = parts[1].strip()
+                if grade_part.upper().startswith('CR'):
+                    return 'background-color: #FFFACD'  # light yellow
+                if credit_part == '0':
                     return 'background-color: pink'
+                else:
+                    return 'background-color: lightgreen'
             return ''
 
         styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
