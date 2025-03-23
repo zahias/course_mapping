@@ -206,16 +206,16 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
 
     output = io.BytesIO()
     workbook = Workbook()
-    
+
     # Set up sheet for Required Courses
     ws_required = workbook.active
     ws_required.title = "Required Courses"
-    
+
     # Define fill colors
     green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
     pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
     yellow_fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
-    
+
     headers = list(displayed_df.columns)
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
@@ -225,29 +225,29 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 header = headers[c_idx - 1]
-                # Only format cells corresponding to courses defined in the configuration
                 if header in courses_config:
-                    if isinstance(value, str):
-                        txt = value.strip()
-                        if txt.upper().startswith("CR"):
-                            cell.fill = yellow_fill
-                        elif txt.lower() == "c":
+                    # Convert the cell value to string for processing.
+                    txt = str(value).strip() if value is not None else ""
+                    if not txt:
+                        cell.fill = pink_fill
+                    elif txt.upper().startswith("CR"):
+                        cell.fill = yellow_fill
+                    elif txt.lower() == "c":
+                        cell.fill = green_fill
+                    else:
+                        # Try to extract grade(s) from a value that might be "grade(s) | credits".
+                        if " | " in txt:
+                            grades_str = txt.split(" | ")[0].strip()
+                        else:
+                            grades_str = txt
+                        grades = [g.strip() for g in grades_str.split(",") if g.strip()]
+                        if grades and any(grade in courses_config[header]["counted_grades"] for grade in grades):
                             cell.fill = green_fill
                         else:
-                            # Expect format: "grade(s) | credits"
-                            parts = txt.split("|")
-                            if parts:
-                                grades_str = parts[0].strip()
-                                grades = [g.strip() for g in grades_str.split(",") if g.strip()]
-                                if any(grade in courses_config[header]["counted_grades"] for grade in grades):
-                                    cell.fill = green_fill
-                                else:
-                                    cell.fill = pink_fill
-                    else:
-                        cell.fill = pink_fill
+                            cell.fill = pink_fill
                 else:
                     cell.fill = None
-    
+
     # Set up sheet for Intensive Courses
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     headers_intensive = list(intensive_displayed_df.columns)
@@ -260,23 +260,23 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
             else:
                 header = headers_intensive[c_idx - 1]
                 if header in courses_config:
-                    if isinstance(value, str):
-                        txt = value.strip()
-                        if txt.upper().startswith("CR"):
-                            cell.fill = yellow_fill
-                        elif txt.lower() == "c":
+                    txt = str(value).strip() if value is not None else ""
+                    if not txt:
+                        cell.fill = pink_fill
+                    elif txt.upper().startswith("CR"):
+                        cell.fill = yellow_fill
+                    elif txt.lower() == "c":
+                        cell.fill = green_fill
+                    else:
+                        if " | " in txt:
+                            grades_str = txt.split(" | ")[0].strip()
+                        else:
+                            grades_str = txt
+                        grades = [g.strip() for g in grades_str.split(",") if g.strip()]
+                        if grades and any(grade in courses_config[header]["counted_grades"] for grade in grades):
                             cell.fill = green_fill
                         else:
-                            parts = txt.split("|")
-                            if parts:
-                                grades_str = parts[0].strip()
-                                grades = [g.strip() for g in grades_str.split(",") if g.strip()]
-                                if any(grade in courses_config[header]["counted_grades"] for grade in grades):
-                                    cell.fill = green_fill
-                                else:
-                                    cell.fill = pink_fill
-                    else:
-                        cell.fill = pink_fill
+                            cell.fill = pink_fill
                 else:
                     cell.fill = None
 
