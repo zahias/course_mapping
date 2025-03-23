@@ -167,14 +167,12 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
 
     output = io.BytesIO()
     workbook = Workbook()
-
-    # Required Courses sheet
     ws_required = workbook.active
     ws_required.title = "Required Courses"
 
-    green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-    pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
-    yellow_fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+    light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
+    pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
+    light_yellow_fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
 
     headers = list(displayed_df.columns)
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
@@ -182,30 +180,27 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
             cell = ws_required.cell(row=r_idx, column=c_idx, value=value)
             if r_idx == 1:
                 cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.alignment = Alignment(horizontal='center', vertical='center')
             else:
-                header = headers[c_idx-1]
-                if header in courses_config:
-                    txt = str(value).strip() if value is not None else ""
-                    txt_upper = txt.upper()
-                    if not txt:
-                        cell.fill = pink_fill
-                    elif txt_upper.startswith("CR"):
-                        cell.fill = yellow_fill
-                    elif txt.lower() == "c":
-                        cell.fill = green_fill
-                    else:
-                        grades_str = txt.split(" | ")[0].strip()
-                        grades = [g.strip().upper() for g in grades_str.split(",") if g.strip()]
-                        allowed_grades = [g.strip().upper() for g in courses_config[header]["counted_grades"]]
-                        if grades and any(g in allowed_grades for g in grades):
-                            cell.fill = green_fill
+                col = headers[c_idx-1]
+                if col in courses_config:
+                    if isinstance(value, str):
+                        if value.upper().startswith("CR"):
+                            cell.fill = light_yellow_fill
                         else:
-                            cell.fill = pink_fill
+                            parts = value.split("|")
+                            if parts:
+                                grades_part = parts[0].strip()
+                                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+                                if any(g in courses_config[col]["counted_grades"] for g in grades_list):
+                                    cell.fill = light_green_fill
+                                else:
+                                    cell.fill = pink_fill
+                    else:
+                        cell.fill = pink_fill
                 else:
                     cell.fill = None
 
-    # Intensive Courses sheet
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     headers_intensive = list(intensive_displayed_df.columns)
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
@@ -213,29 +208,28 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
             cell = ws_intensive.cell(row=r_idx, column=c_idx, value=value)
             if r_idx == 1:
                 cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.alignment = Alignment(horizontal='center', vertical='center')
             else:
-                header = headers_intensive[c_idx-1]
-                if header in courses_config:
-                    txt = str(value).strip() if value is not None else ""
-                    txt_upper = txt.upper()
-                    if not txt:
-                        cell.fill = pink_fill
-                    elif txt_upper.startswith("CR"):
-                        cell.fill = yellow_fill
-                    elif txt.lower() == "c":
-                        cell.fill = green_fill
-                    else:
-                        grades_str = txt.split(" | ")[0].strip()
-                        grades = [g.strip().upper() for g in grades_str.split(",") if g.strip()]
-                        allowed_grades = [g.strip().upper() for g in courses_config[header]["counted_grades"]]
-                        if grades and any(g in allowed_grades for g in grades):
-                            cell.fill = green_fill
+                col = headers_intensive[c_idx-1]
+                if col in courses_config:
+                    if isinstance(value, str):
+                        if value.upper().startswith("CR"):
+                            cell.fill = light_yellow_fill
                         else:
-                            cell.fill = pink_fill
+                            parts = value.split("|")
+                            if parts:
+                                grades_part = parts[0].strip()
+                                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+                                if any(g in courses_config[col]["counted_grades"] for g in grades_list):
+                                    cell.fill = light_green_fill
+                                else:
+                                    cell.fill = pink_fill
+                    else:
+                        cell.fill = pink_fill
                 else:
                     cell.fill = None
 
     workbook.save(output)
     output.seek(0)
     return output
+

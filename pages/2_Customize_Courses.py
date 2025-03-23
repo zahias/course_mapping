@@ -12,23 +12,10 @@ st.write(
     "The 'CountedGrades' column should list, separated by commas, the grades that count as passing for that course."
 )
 
-# Equivalent Courses reloader (top-level)
-with st.expander("Equivalent Courses", expanded=True):
-    if st.button("Reload Equivalent Courses", help="Reload equivalent courses mapping from Google Drive"):
-        try:
-            creds = authenticate_google_drive()
-            service = build('drive', 'v3', credentials=creds)
-            file_id = search_file(service, "equivalent_courses.csv")
-            if file_id:
-                download_file(service, file_id, "equivalent_courses.csv")
-                st.success("Equivalent courses reloaded successfully from Google Drive.")
-            else:
-                st.error("Equivalent courses file not found on Google Drive.")
-        except Exception as e:
-            st.error(f"Error reloading equivalent courses: {e}")
-
+# Top-level expander for course customization (do not nest other expanders inside this one)
 with st.expander("Course Customization Options", expanded=True):
     uploaded_courses = st.file_uploader("Upload Custom Courses (CSV)", type="csv", help="Use the template below.")
+    
     if st.button("Download Template", help="Download a CSV template for courses configuration."):
         template_df = pd.DataFrame({
             'Course': ['ENGL201', 'CHEM201', 'ARAB201', 'MATH101'],
@@ -39,15 +26,18 @@ with st.expander("Course Customization Options", expanded=True):
                 'A, A-',
                 'A, A-, B+, B, B-, C+'
             ],
-            'Type': ['Required', 'Required', 'Required', 'Required']
+            'Type': ['Required', 'Required', 'Required', 'Required']  # or 'Intensive'
         })
         csv_data = template_df.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV Template", data=csv_data, file_name='courses_template.csv', mime='text/csv')
     
+    # Process the uploaded file or load the local file if available
     if uploaded_courses is not None:
         try:
             custom_df = pd.read_csv(uploaded_courses)
+            # Save locally
             custom_df.to_csv("courses_config.csv", index=False)
+            # Sync to Google Drive: upload if not exists; otherwise update.
             try:
                 creds = authenticate_google_drive()
                 service = build('drive', 'v3', credentials=creds)
@@ -99,8 +89,24 @@ with st.expander("Course Customization Options", expanded=True):
         else:
             st.error("CSV must contain 'Course', 'Credits', and 'CountedGrades' columns.")
 
+# Top-level expander for equivalent courses (moved from View Reports)
+with st.expander("Equivalent Courses", expanded=True):
+    if st.button("Reload Equivalent Courses", help="Reload equivalent courses mapping from Google Drive"):
+        try:
+            creds = authenticate_google_drive()
+            service = build('drive', 'v3', credentials=creds)
+            file_id = search_file(service, "equivalent_courses.csv")
+            if file_id:
+                download_file(service, file_id, "equivalent_courses.csv")
+                st.success("Equivalent courses reloaded successfully from Google Drive.")
+            else:
+                st.error("Equivalent courses file not found on Google Drive.")
+        except Exception as e:
+            st.error(f"Error reloading equivalent courses: {e}")
+
 st.success("Courses are now set. Proceed to 'View Reports' to see the processed data.")
 
+# Assignment Types Configuration remains as before.
 with st.expander("Assignment Types Configuration", expanded=True):
     st.write("Edit the list of assignment types that can be assigned to courses. For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses.")
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
