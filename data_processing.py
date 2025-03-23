@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-from config import get_allowed_assignment_types
 
 def read_progress_report(filepath):
     try:
@@ -92,6 +91,7 @@ def process_progress_report(
 
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
 
+    from config import get_allowed_assignment_types
     if per_student_assignments:
         allowed_assignment_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -226,7 +226,6 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
             else:
                 header = headers[c_idx - 1]
                 if header in courses_config:
-                    # Convert the cell value to string for processing.
                     txt = str(value).strip() if value is not None else ""
                     if not txt:
                         cell.fill = pink_fill
@@ -235,11 +234,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                     elif txt.lower() == "c":
                         cell.fill = green_fill
                     else:
-                        # Try to extract grade(s) from a value that might be "grade(s) | credits".
-                        if " | " in txt:
-                            grades_str = txt.split(" | ")[0].strip()
-                        else:
-                            grades_str = txt
+                        grades_str = txt.split(" | ")[0].strip()
                         grades = [g.strip() for g in grades_str.split(",") if g.strip()]
                         if grades and any(grade in courses_config[header]["counted_grades"] for grade in grades):
                             cell.fill = green_fill
@@ -268,10 +263,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                     elif txt.lower() == "c":
                         cell.fill = green_fill
                     else:
-                        if " | " in txt:
-                            grades_str = txt.split(" | ")[0].strip()
-                        else:
-                            grades_str = txt
+                        grades_str = txt.split(" | ")[0].strip()
                         grades = [g.strip() for g in grades_str.split(",") if g.strip()]
                         if grades and any(grade in courses_config[header]["counted_grades"] for grade in grades):
                             cell.fill = green_fill

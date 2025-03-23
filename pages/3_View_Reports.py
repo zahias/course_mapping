@@ -44,7 +44,6 @@ else:
             equivalent_courses_mapping
         )
 
-        # Calculate credits for required and intensive courses.
         credits_df = required_courses_df.apply(
             lambda row: calculate_credits(row, target_courses), axis=1
         )
@@ -78,7 +77,6 @@ else:
                     return grades_list[0] if grades_list else ''
             return value
 
-        # Make copies for toggled display.
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
 
@@ -107,7 +105,6 @@ else:
                     lambda x: extract_primary_grade(x, intensive_courses, grade_toggle)
                 )
 
-        # Display the processed dataframes.
         display_dataframes(displayed_df.style, intensive_displayed_df.style, extra_courses_df, df)
 
         st.markdown("**Color Legend:**")
@@ -169,8 +166,10 @@ else:
             st.plotly_chart(fig, use_container_width=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Use the toggled dataframes to generate the report.
-        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
+        # Merge configurations for formatting.
+        config_for_formatting = target_courses.copy()
+        config_for_formatting.update(intensive_courses)
+        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, config_for_formatting)
         st.session_state['output'] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
 
