@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from google_drive_utils import authenticate_google_drive, search_file, download_file
+from google_drive_utils import authenticate_google_drive, search_file, download_file, update_file, upload_file
 from googleapiclient.discovery import build
 
 st.title("Customize Courses")
@@ -13,7 +13,7 @@ st.write(
 )
 
 with st.expander("Course Customization Options", expanded=True):
-    # Button to reload courses configuration from Google Drive
+    # Reload courses configuration from Google Drive
     if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
         try:
             creds = authenticate_google_drive()
@@ -27,6 +27,21 @@ with st.expander("Course Customization Options", expanded=True):
         except Exception as e:
             st.error(f"Error reloading courses configuration: {e}")
     
+    # Reload equivalent courses mapping (moved from View Reports)
+    with st.expander("Equivalent Courses", expanded=True):
+        if st.button("Reload Equivalent Courses", help="Reload equivalent courses mapping from Google Drive"):
+            try:
+                creds = authenticate_google_drive()
+                service = build('drive', 'v3', credentials=creds)
+                file_id = search_file(service, "equivalent_courses.csv")
+                if file_id:
+                    download_file(service, file_id, "equivalent_courses.csv")
+                    st.success("Equivalent courses reloaded successfully from Google Drive.")
+                else:
+                    st.error("Equivalent courses file not found on Google Drive.")
+            except Exception as e:
+                st.error(f"Error reloading equivalent courses: {e}")
+
     uploaded_courses = st.file_uploader("Upload Custom Courses (CSV)", type="csv", help="Use the template below.")
     
     if st.button("Download Template", help="Download a CSV template for courses configuration."):
@@ -44,17 +59,33 @@ with st.expander("Course Customization Options", expanded=True):
         csv_data = template_df.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV Template", data=csv_data, file_name='courses_template.csv', mime='text/csv')
     
-    # Process the uploaded file or load from local courses_config.csv if available
+    # Process uploaded file or load local courses_config.csv if available
     if uploaded_courses is not None:
         try:
             custom_df = pd.read_csv(uploaded_courses)
+            # Save the uploaded file locally
+            custom_df.to_csv("courses_config.csv", index=False)
+            # Sync to Google Drive (upload if not exists; update if exists)
+            try:
+                creds = authenticate_google_drive()
+                service = build('drive', 'v3', credentials=creds)
+                folder_id = None
+                file_id = search_file(service, "courses_config.csv", folder_id=folder_id)
+                if file_id:
+                    update_file(service, file_id, "courses_config.csv")
+                    st.info("Courses configuration updated on Google Drive.")
+                else:
+                    upload_file(service, "courses_config.csv", "courses_config.csv", folder_id=folder_id)
+                    st.info("Courses configuration uploaded to Google Drive.")
+            except Exception as e:
+                st.error(f"Error syncing courses configuration to Google Drive: {e}")
         except Exception as e:
             st.error(f"Error reading uploaded file: {e}")
             custom_df = None
     else:
         try:
             custom_df = pd.read_csv("courses_config.csv")
-            st.info("Loaded courses configuration from Google Drive file (courses_config.csv).")
+            st.info("Loaded courses configuration from local file (courses_config.csv).")
         except Exception as e:
             st.error("No courses configuration file found. Please upload a custom courses file.")
             custom_df = None
@@ -88,7 +119,7 @@ with st.expander("Course Customization Options", expanded=True):
 
 st.success("Courses are now set. Proceed to 'View Reports' to see the processed data.")
 
-# Assignment Types Configuration remains as before.
+# Assignment Types Configuration
 with st.expander("Assignment Types Configuration", expanded=True):
     st.write("Edit the list of assignment types that can be assigned to courses. For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses.")
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
