@@ -117,6 +117,13 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_config):
+    """
+    Returns a string in the format "BEST_GRADE | credits".
+    If there are multiple attempts for a course, the best (highest) grade
+    is selected according to the hierarchy defined in config.py.
+    """
+    import pandas as pd
+    from config import get_grade_hierarchy
     if pd.isna(grade):
         return 'NR'
     elif grade == '':
@@ -124,14 +131,18 @@ def determine_course_value(grade, course, courses_config):
     else:
         grades = grade.split(', ')
         grades_cleaned = [g.strip() for g in grades if g.strip()]
-        all_grades = ', '.join(grades_cleaned)
-        allowed = courses_config[course]["counted_grades"]
-        allowed_upper = [g.upper() for g in allowed]
-        grades_upper = [g.upper() for g in grades_cleaned]
-        if not any(g in allowed_upper for g in grades_upper):
-            return f'{all_grades} | 0'
+        grade_order = get_grade_hierarchy()
+        best_grade = None
+        for g in grade_order:
+            if g in grades_cleaned:
+                best_grade = g
+                break
+        if best_grade is not None:
+            return f'{best_grade} | {courses_config[course]["credits"]}'
         else:
-            return f'{all_grades} | {courses_config[course]["credits"]}'
+            # If no grade is found in the hierarchy, return the first grade with 0 credits.
+            return f'{grades_cleaned[0]} | 0'
+
 
 def calculate_credits(row, courses_config):
     completed, registered, remaining = 0, 0, 0
