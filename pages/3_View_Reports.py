@@ -68,26 +68,26 @@ else:
             help="If checked, shows 'c' if completed and '' if not instead of actual grades."
         )
 
-        def extract_primary_grade(value, courses_config, show_all_grades):
-    from config import get_grade_hierarchy
-    if isinstance(value, str):
-        parts = value.split(' | ')
-        grades_part = parts[0]
-        grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-        if show_all_grades:
-            return ', '.join(grades_list)
-        else:
-            grade_order = get_grade_hierarchy()
-            best_grade = None
-            for g in grade_order:
-                if g in grades_list:
-                    best_grade = g
-                    break
-            if best_grade is not None:
-                return best_grade
+            def extract_primary_grade(value, courses_config, show_all_grades):
+        from config import get_grade_hierarchy
+        if isinstance(value, str):
+            parts = value.split(' | ')
+            grades_part = parts[0]
+            grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+            if show_all_grades:
+                return ', '.join(grades_list)
             else:
-                return grades_list[0] if grades_list else ''
-    return value
+                grade_order = get_grade_hierarchy()
+                best_grade = None
+                for g in grade_order:
+                    if g in grades_list:
+                        best_grade = g
+                        break
+                if best_grade is not None:
+                    return best_grade
+                else:
+                    return grades_list[0] if grades_list else ''
+        return value
 
 
         # Create copies to work with toggles
