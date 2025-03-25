@@ -16,6 +16,12 @@ import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
 from config import get_allowed_assignment_types
 
+# Define the grading system here.
+grading_system = {
+    'Counted': ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-'],
+    'Not Counted': ['F', 'R', 'W', 'WF', 'I']
+}
+
 st.title("View Reports")
 st.markdown("---")
 
@@ -35,17 +41,19 @@ else:
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
+        # Process progress report using dynamic courses configuration.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
             intensive_courses,
+            grading_system,  # Now defined locally above.
             per_student_assignments,
             equivalent_courses_mapping
         )
 
-        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
+        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses, grading_system), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
+        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses, grading_system), axis=1)
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
         allowed_assignment_types = get_allowed_assignment_types()
@@ -127,7 +135,7 @@ else:
             def formatter(val):
                 if isinstance(val, str):
                     if val.upper().startswith("CR"):
-                        return "background-color: #FFFACD"
+                        return "background-color: #FFFACD"  # light yellow
                     parts = val.split("|")
                     if parts:
                         grade_part = parts[0].strip()
@@ -160,6 +168,7 @@ else:
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("Save Assignments", help="Save the updated assignments to Google Drive"):
+                from assignment_utils import save_assignments, validate_assignments
                 errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
                 if errors:
                     st.error("Please resolve the following issues before saving assignments:")
@@ -171,6 +180,7 @@ else:
                     st.experimental_rerun()
         with col2:
             if st.button("Reset All Assignments", help="Clears all saved assignments"):
+                from assignment_utils import reset_assignments
                 reset_assignments()
                 st.success("All assignments have been reset.")
                 st.experimental_rerun()
@@ -182,7 +192,7 @@ else:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_btn"
             )
-        
+
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -199,9 +209,16 @@ else:
                 extra_courses_df['ID'].str.contains(search_student, case=False, na=False) |
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
-        edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-        errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
-        if errors:
-            st.error("Please resolve the following issues before saving assignments:")
-            for error in errors:
-                st.write(f"- {error}")
+        # (Do not call add_assignment_selection() a second time to avoid duplicate keys.)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, filtered_target_courses)
+        st.session_state['output'] = output.getvalue()
+        from logging_utils import log_action
+        log_action(f"Report generated at {timestamp}")
+        st.download_button(
+            label="Download Processed Report",
+            data=st.session_state['output'],
+            file_name="student_progress_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
