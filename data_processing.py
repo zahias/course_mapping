@@ -108,16 +108,34 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = ""
+        # Process each cell using determine_course_value (from previous logic)
+        pivot_df[course] = pivot_df[course].apply(
+            lambda grade: determine_course_value(grade, course, target_courses, grading_system=None)
+        )
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
             intensive_pivot_df[course] = ""
-    return pivot_df, intensive_pivot_df, extra_courses_df, sorted(extra_courses_df['Course'].unique())
+        intensive_pivot_df[course] = intensive_pivot_df[course].apply(
+            lambda grade: determine_course_value(grade, course, intensive_courses, grading_system=None)
+        )
+    result_df = pivot_df[['ID', 'NAME'] + list(target_courses.keys())]
+    intensive_result_df = intensive_pivot_df[['ID', 'NAME'] + list(intensive_courses.keys())]
+    if per_student_assignments:
+        assigned_courses = []
+        for student_id, assignments in per_student_assignments.items():
+            for assign_type, course in assignments.items():
+                assigned_courses.append((student_id, course))
+        extra_courses_df = extra_courses_df[
+            ~extra_courses_df.apply(lambda row: (str(row['ID']), row['Course']) in assigned_courses, axis=1)
+        ]
+    extra_courses_list = sorted(extra_courses_df['Course'].unique())
+    return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def extract_primary_grade(value, course_config, show_all_grades):
     """
     If show_all_grades is True, returns the full comma-separated grade string with credits appended.
     If False, returns only the primary counted grade letter.
-    If the value is empty, returns "CR | <credits>" to denote Currently Registered.
+    If the value is empty, returns "CR | <credits>" to indicate Currently Registered.
     """
     from config import get_grade_hierarchy
     if not isinstance(value, str):
@@ -140,7 +158,14 @@ def extract_primary_grade(value, course_config, show_all_grades):
             best = grades_list[0]
         return best
 
-def calculate_credits(row, courses_config):
+def calculate_credits(row, courses_config, grading_system=None):
+    """
+    Calculates credits for each course, returning:
+      - # of Credits Completed
+      - # Registered (if the cell starts with "CR")
+      - # Remaining
+      - Total Credits
+    """
     completed, registered, remaining = 0, 0, 0
     total_credits = sum(courses_config[course]["credits"] for course in courses_config)
     for course in courses_config:
@@ -148,13 +173,62 @@ def calculate_credits(row, courses_config):
         if not isinstance(value, str) or value.strip() == "":
             remaining += courses_config[course]["credits"]
         else:
-            grades_list = [g.strip() for g in value.split(",") if g.strip()]
-            if any(g in courses_config[course]["counted_grades"] for g in grades_list):
-                completed += courses_config[course]["credits"]
-            else:
+            value_upper = value.upper()
+            if value_upper.startswith("CR"):
+                registered += courses_config[course]["credits"]
+            elif value_upper.startswith("NR"):
                 remaining += courses_config[course]["credits"]
-    return pd.Series([completed, 0, remaining, total_credits],
+            else:
+                parts = value.split('|')
+                if len(parts) > 1:
+                    try:
+                        assigned_credits = int(parts[1].strip())
+                    except:
+                        assigned_credits = 0
+                    if assigned_credits > 0:
+                        completed += courses_config[course]["credits"]
+                    else:
+                        remaining += courses_config[course]["credits"]
+                else:
+                    remaining += courses_config[course]["credits"]
+    return pd.Series([completed, registered, remaining, total_credits],
                      index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
+
+def determine_course_value(grade, course, courses_dict, grading_system):
+    """
+    Determines the course value based on the available grades.
+    If no grade is present, returns 'NR' (Not Registered).
+    If the grade cell is empty, returns 'CR | <credits>'.
+    Otherwise, returns a string with all grades and the credit amount if passed, or 0 if not passed.
+    (This function uses a simple logic from previous versions; grading_system is not used in this update.)
+    """
+    grade_ranking = {
+        'A+': 14, 'A': 13, 'A-': 12,
+        'B+': 11, 'B': 10, 'B-': 9,
+        'C+': 8, 'C': 7, 'C-': 6,
+        'D+': 5, 'D': 4, 'D-': 3,
+        'T': 2, 'F': 1
+    }
+    thresholds = {}  # This could be extended; default threshold is 'D-'
+    threshold = thresholds.get(course, 'D-')
+    if pd.isna(grade):
+        return 'NR'
+    elif grade == '':
+        return f'CR | {courses_dict[course]["credits"]}'
+    else:
+        grades = grade.split(', ')
+        grades_cleaned = [g.strip() for g in grades if g.strip()]
+        all_grades = ', '.join(grades_cleaned)
+        counted_grades = [g for g in grades_cleaned if g in courses_dict[course]["counted_grades"]]
+        if not counted_grades:
+            return f'{all_grades} | 0'
+        else:
+            best = max(counted_grades, key=lambda g: grade_ranking.get(g, 0))
+            counted_credits = courses_dict[course]["credits"]
+            if grade_ranking.get(best, 0) >= grade_ranking.get(threshold, 0):
+                return f'{all_grades} | {counted_credits}'
+            else:
+                return f'{all_grades} | 0'
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, courses_config):
     import io
@@ -185,10 +259,11 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                 else:
                     if isinstance(value, str):
                         grades_list = [g.strip() for g in value.split(',') if g.strip()]
-                        if any(g in courses_config['Counted'] or 'CR' == g.upper() for g in grades_list):
+                        if any(g in courses_config.get('Counted', []) or 'CR' == g.upper() for g in grades_list):
                             cell.fill = light_green_fill
                         else:
                             cell.fill = pink_fill
+
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
@@ -204,7 +279,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                 else:
                     if isinstance(value, str):
                         grades_list = [g.strip() for g in value.split(',') if g.strip()]
-                        if any(g in courses_config['Counted'] or 'CR' == g.upper() for g in grades_list):
+                        if any(g in courses_config.get('Counted', []) or 'CR' == g.upper() for g in grades_list):
                             cell.fill = light_green_fill
                         else:
                             cell.fill = pink_fill
