@@ -16,6 +16,33 @@ import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
 from config import get_allowed_assignment_types
 
+# --- Inject custom CSS for improved styling ---
+st.markdown(
+    """
+    <style>
+    /* Custom Theme */
+    body {
+        background-color: #f7f7f7;
+    }
+    .stButton>button {
+        background-color: #4CAF50;
+        color: white;
+        border-radius: 5px;
+        padding: 8px 16px;
+        font-size: 14px;
+    }
+    .stDataFrame table {
+        border-collapse: collapse;
+    }
+    .stDataFrame th, .stDataFrame td {
+        padding: 8px;
+        text-align: left;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("View Reports")
 st.markdown("---")
 
@@ -36,7 +63,6 @@ else:
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        # Process progress report using dynamic courses configuration.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
@@ -45,7 +71,6 @@ else:
             equivalent_courses_mapping
         )
 
-        # Calculate credits and append to required DataFrame.
         credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
         intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
@@ -63,13 +88,10 @@ else:
             help="If checked, display 'c' if completed and '' if not, instead of the grade letters."
         )
 
-        # --- Advanced Filters for Required Courses ---
         with st.expander("Advanced Filters"):
             req_id_filter = st.text_input("Filter by Student ID", key="req_id_filter")
             req_name_filter = st.text_input("Filter by Student Name", key="req_name_filter")
-            # New: when courses are selected, only those course columns will be displayed.
             req_courses_filter = st.multiselect("Select Courses to Display", options=list(target_courses.keys()), key="req_courses_filter")
-            # Slider filter for completed credits.
             if "# of Credits Completed" in required_courses_df.columns:
                 min_credits = int(required_courses_df["# of Credits Completed"].min())
                 max_credits = int(required_courses_df["# of Credits Completed"].max())
@@ -77,36 +99,29 @@ else:
             else:
                 credits_range = (0, 0)
 
-        # Apply advanced filters to required courses DataFrame.
         displayed_df = required_courses_df.copy()
         if req_id_filter:
             displayed_df = displayed_df[displayed_df["ID"].str.contains(req_id_filter, case=False)]
         if req_name_filter:
             displayed_df = displayed_df[displayed_df["NAME"].str.contains(req_name_filter, case=False)]
-        # If courses are selected, keep only ID, NAME, credit summary, and those course columns.
         if req_courses_filter:
             keep_cols = ["ID", "NAME"]
-            # Only add course columns that exist in displayed_df.
             selected_courses = [course for course in req_courses_filter if course in displayed_df.columns]
             keep_cols.extend(selected_courses)
             for col in ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]:
                 if col in displayed_df.columns:
                     keep_cols.append(col)
             displayed_df = displayed_df[keep_cols]
-            # Build filtered_target_courses dictionary.
             filtered_target_courses = {course: target_courses[course] for course in selected_courses}
         else:
             filtered_target_courses = target_courses
 
-        # Filter rows by credits slider.
         if "# of Credits Completed" in displayed_df.columns:
             displayed_df = displayed_df[(displayed_df["# of Credits Completed"] >= credits_range[0]) & 
                                         (displayed_df["# of Credits Completed"] <= credits_range[1])]
 
-        # Intensive courses table remains unfiltered by advanced filters.
         intensive_displayed_df = intensive_courses_df.copy()
 
-        # Process grades based on toggle settings.
         if completed_toggle:
             for course in filtered_target_courses:
                 if course in displayed_df.columns:
@@ -136,12 +151,11 @@ else:
                         lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
                     )
 
-        # Define per-column color formatting.
         def make_color_format(course_config):
             def formatter(val):
                 if isinstance(val, str):
                     if val.upper().startswith("CR"):
-                        return "background-color: #FFFACD"  # light yellow
+                        return "background-color: #FFFACD"
                     parts = val.split("|")
                     if parts:
                         grade_part = parts[0].strip()
