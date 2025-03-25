@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from data_processing import (
     process_progress_report,
     calculate_credits,
@@ -62,10 +61,37 @@ else:
             help="If checked, shows 'c' if completed and '' if not, instead of actual grade letters."
         )
 
-        # Create copies for toggling
-        displayed_df = required_courses_df.copy()
-        intensive_displayed_df = intensive_courses_df.copy()
+        # --- Advanced Search Filters for Required Courses ---
+        st.markdown("### Advanced Search Filters for Required Courses")
+        req_id_filter = st.text_input("Filter by Student ID (Required Courses)", key="req_id_filter")
+        req_name_filter = st.text_input("Filter by Student Name (Required Courses)", key="req_name_filter")
+        req_courses_filter = st.multiselect("Filter by Courses (Required Courses)", options=list(target_courses.keys()), key="req_courses_filter")
 
+        displayed_df = required_courses_df.copy()
+        if req_id_filter:
+            displayed_df = displayed_df[displayed_df["ID"].str.contains(req_id_filter, case=False)]
+        if req_name_filter:
+            displayed_df = displayed_df[displayed_df["NAME"].str.contains(req_name_filter, case=False)]
+        if req_courses_filter:
+            for course in req_courses_filter:
+                displayed_df = displayed_df[displayed_df[course].astype(str).str.strip() != ""]
+
+        # --- Advanced Search Filters for Intensive Courses ---
+        st.markdown("### Advanced Search Filters for Intensive Courses")
+        int_id_filter = st.text_input("Filter by Student ID (Intensive Courses)", key="int_id_filter")
+        int_name_filter = st.text_input("Filter by Student Name (Intensive Courses)", key="int_name_filter")
+        int_courses_filter = st.multiselect("Filter by Courses (Intensive Courses)", options=list(intensive_courses.keys()), key="int_courses_filter")
+
+        intensive_displayed_df = intensive_courses_df.copy()
+        if int_id_filter:
+            intensive_displayed_df = intensive_displayed_df[intensive_displayed_df["ID"].str.contains(int_id_filter, case=False)]
+        if int_name_filter:
+            intensive_displayed_df = intensive_displayed_df[intensive_displayed_df["NAME"].str.contains(int_name_filter, case=False)]
+        if int_courses_filter:
+            for course in int_courses_filter:
+                intensive_displayed_df = intensive_displayed_df[intensive_displayed_df[course].astype(str).str.strip() != ""]
+
+        # Apply grade processing based on toggle settings.
         if completed_toggle:
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
@@ -91,6 +117,7 @@ else:
                     lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
                 )
 
+        # Color formatting
         def make_color_format(course_config):
             def formatter(val):
                 if isinstance(val, str):
@@ -111,13 +138,13 @@ else:
         for course in target_courses:
             if course in displayed_df.columns:
                 styled_df = styled_df.applymap(make_color_format(target_courses[course]), subset=pd.IndexSlice[:, course])
-        intensive_styled_df = intensive_displayed_df.style
+        styled_intensive_df = intensive_displayed_df.style
         for course in intensive_courses:
             if course in intensive_displayed_df.columns:
-                intensive_styled_df = intensive_styled_df.applymap(make_color_format(intensive_courses[course]), subset=pd.IndexSlice[:, course])
+                styled_intensive_df = styled_intensive_df.applymap(make_color_format(intensive_courses[course]), subset=pd.IndexSlice[:, course])
 
         from ui_components import display_dataframes, add_assignment_selection
-        display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
+        display_dataframes(styled_df, styled_intensive_df, extra_courses_df, df)
 
         st.markdown("**Color Legend:**")
         st.markdown("- Light Green: Completed courses")
@@ -131,7 +158,7 @@ else:
             st.success("All assignments have been reset.")
             st.rerun()
 
-        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
+        search_student = st.text_input("Search Extra Courses by Student ID or Name", help="Type to filter extra courses", key="extra_search")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -161,16 +188,7 @@ else:
                 st.success("Assignments saved.")
                 st.rerun()
 
-        if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
-            summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
-            fig = px.bar(
-                summary_df,
-                x='NAME',
-                y=['# of Credits Completed', '# Remaining'],
-                barmode='group',
-                title="Completed vs. Remaining Credits per Student"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        # Removed Plotly Credits Chart and Manual Backup section
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
@@ -182,14 +200,3 @@ else:
             file_name="student_progress_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        import shutil, datetime
-        def backup_files():
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_folder = f"backups/{timestamp}"
-            os.makedirs(backup_folder, exist_ok=True)
-            for f in ["equivalent_courses.csv", "sce_fec_assignments.csv", "app.log"]:
-                if os.path.exists(f):
-                    shutil.copy(f, backup_folder)
-        if st.button("Perform Manual Backup", help="Create a timestamped backup of key files"):
-            backup_files()
-            st.success("Backup completed.")

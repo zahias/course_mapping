@@ -4,7 +4,7 @@ from config import get_grade_hierarchy, get_allowed_assignment_types
 
 def read_progress_report(filepath):
     try:
-        if filepath.lower().endswith('.xlsx') or filepath.lower().endswith('.xls'):
+        if filepath.lower().endswith(('.xlsx', '.xls')):
             xls = pd.ExcelFile(filepath)
             if 'Progress Report' in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name='Progress Report')
@@ -90,7 +90,7 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
                         return assign_type
             return mapped_course
         df['Mapped Course'] = df.apply(map_assignment, axis=1)
-    extra_courses_df = df[ (~df['Mapped Course'].isin(target_courses.keys())) & (~df['Mapped Course'].isin(intensive_courses.keys())) ]
+    extra_courses_df = df[(~df['Mapped Course'].isin(target_courses.keys())) & (~df['Mapped Course'].isin(intensive_courses.keys()))]
     target_df = df[df['Mapped Course'].isin(target_courses.keys())]
     intensive_df = df[df['Mapped Course'].isin(intensive_courses.keys())]
     pivot_df = target_df.pivot_table(
@@ -115,10 +115,8 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
 
 def extract_primary_grade(value, course_config, show_all_grades):
     """
-    Given a raw grade string (e.g., "F, F, D") for a course, if show_all_grades is True
-    return the entire raw string appended with " | credits".
-    If show_all_grades is False, return only the primary counted grade (highest per hierarchy)
-    if found; otherwise, the first grade, appended with " | credits".
+    If show_all_grades is True, returns the full comma-separated grade string with credits appended.
+    If False, returns only the primary counted grade (the highest per hierarchy) without appending credits.
     """
     from config import get_grade_hierarchy
     if not isinstance(value, str) or value.strip() == "":
@@ -137,7 +135,7 @@ def extract_primary_grade(value, course_config, show_all_grades):
                 break
         if best is None:
             best = grades_list[0]
-        return f"{best} | {course_config['credits']}"
+        return best  # Return only the grade letter
 
 def calculate_credits(row, courses_config):
     completed, registered, remaining = 0, 0, 0
@@ -194,7 +192,6 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                                     cell.fill = pink_fill
                     else:
                         cell.fill = pink_fill
-                # If the column is not in courses_config, do not set cell.fill.
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     headers_intensive = list(intensive_displayed_df.columns)
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
@@ -220,7 +217,6 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                                     cell.fill = pink_fill
                     else:
                         cell.fill = pink_fill
-                # Do nothing if no fill is needed.
     workbook.save(output)
     output.seek(0)
     return output
