@@ -154,7 +154,7 @@ else:
         display_dataframes(styled_df, styled_intensive_df, extra_courses_df, df)
 
         st.subheader("Assign Courses")
-        # Assignment section: search bar, assignment table, then three buttons in one row.
+        # Assignment section: search bar, then table, then three buttons in one row.
         search_assignment = st.text_input("Search Extra Courses", key="assignment_search")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
@@ -173,13 +173,12 @@ else:
                 extra_courses_df['NAME'].str.contains(search_assignment, case=False, na=False)
             ]
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-
-        st.markdown("")  # spacer
+        errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
+        
+        st.markdown("")
         cols = st.columns(3)
         with cols[0]:
             if st.button("Save Assignments", key="save_assignments_btn"):
-                from assignment_utils import save_assignments, validate_assignments
-                errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
                 if errors:
                     st.error("Please resolve the following issues before saving assignments:")
                     for error in errors:
@@ -194,7 +193,6 @@ else:
                 st.success("All assignments have been reset.")
                 st.experimental_rerun()
         with cols[2]:
-            # Download button with custom styling (using markdown hack for color)
             download_btn = st.download_button(
                 label="Download Processed Report",
                 data=st.session_state.get('output', b""),
@@ -202,7 +200,6 @@ else:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_report_btn"
             )
-            # We can advise users to use a browser extension or custom CSS if further styling is needed.
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, filtered_target_courses)
