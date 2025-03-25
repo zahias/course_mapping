@@ -108,7 +108,6 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = ""
-        # Process each cell using determine_course_value (from previous logic)
         pivot_df[course] = pivot_df[course].apply(
             lambda grade: determine_course_value(grade, course, target_courses, grading_system=None)
         )
@@ -135,7 +134,7 @@ def extract_primary_grade(value, course_config, show_all_grades):
     """
     If show_all_grades is True, returns the full comma-separated grade string with credits appended.
     If False, returns only the primary counted grade letter.
-    If the value is empty, returns "CR | <credits>" to indicate Currently Registered.
+    If the value is empty, returns "CR | <credits>".
     """
     from config import get_grade_hierarchy
     if not isinstance(value, str):
@@ -160,9 +159,9 @@ def extract_primary_grade(value, course_config, show_all_grades):
 
 def calculate_credits(row, courses_config, grading_system=None):
     """
-    Calculates credits for each course, returning:
+    Calculates:
       - # of Credits Completed
-      - # Registered (if the cell starts with "CR")
+      - # Registered (if the cell is empty or starts with "CR")
       - # Remaining
       - Total Credits
     """
@@ -170,8 +169,11 @@ def calculate_credits(row, courses_config, grading_system=None):
     total_credits = sum(courses_config[course]["credits"] for course in courses_config)
     for course in courses_config:
         value = row.get(course, "")
-        if not isinstance(value, str) or value.strip() == "":
+        if not isinstance(value, str):
             remaining += courses_config[course]["credits"]
+        elif value.strip() == "":
+            # If empty, treat as CR (currently registered)
+            registered += courses_config[course]["credits"]
         else:
             value_upper = value.upper()
             if value_upper.startswith("CR"):
@@ -196,11 +198,10 @@ def calculate_credits(row, courses_config, grading_system=None):
 
 def determine_course_value(grade, course, courses_dict, grading_system):
     """
-    Determines the course value based on the available grades.
-    If no grade is present, returns 'NR' (Not Registered).
-    If the grade cell is empty, returns 'CR | <credits>'.
-    Otherwise, returns a string with all grades and the credit amount if passed, or 0 if not passed.
-    (This function uses a simple logic from previous versions; grading_system is not used in this update.)
+    Determines the course value:
+      - If grade is NaN: returns 'NR'
+      - If grade is empty: returns 'CR | <credits>'
+      - Otherwise, returns a string with all grades and credit amount if passing, or 0 if not.
     """
     grade_ranking = {
         'A+': 14, 'A': 13, 'A-': 12,
@@ -209,8 +210,9 @@ def determine_course_value(grade, course, courses_dict, grading_system):
         'D+': 5, 'D': 4, 'D-': 3,
         'T': 2, 'F': 1
     }
-    thresholds = {}  # This could be extended; default threshold is 'D-'
+    thresholds = {}  # Default threshold is 'D-'
     threshold = thresholds.get(course, 'D-')
+    
     if pd.isna(grade):
         return 'NR'
     elif grade == '':
