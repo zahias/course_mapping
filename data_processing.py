@@ -10,64 +10,57 @@ def read_progress_report(filepath):
                 df = pd.read_excel(xls, sheet_name='Progress Report')
                 required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
                 if not required_columns.issubset(df.columns):
-                    st.error(f"The following required columns are missing in the 'Progress Report' sheet: {required_columns - set(df.columns)}")
+                    st.error(f"Missing columns: {required_columns - set(df.columns)}")
                     return None
                 return df
             else:
-                st.info("No 'Progress Report' sheet found. Attempting to process the file as a wide format.")
+                st.info("No 'Progress Report' sheet found. Processing as wide format.")
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
-                    st.error("Failed to transform the file in wide format. Please ensure the file matches the expected structure.")
+                    st.error("Failed to transform wide format file.")
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
             if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
                 return df
             else:
-                st.info("CSV file does not contain the expected columns. Attempting to process as wide format.")
+                st.info("CSV does not contain expected columns. Attempting wide format.")
                 df = transform_wide_format(df)
                 return df
         else:
-            st.error("File format not recognized. Please upload an Excel or CSV file.")
+            st.error("File format not recognized. Upload Excel or CSV.")
             return None
     except Exception as e:
-        st.error(f"An error occurred while reading the file: {e}")
+        st.error(f"Error reading file: {e}")
         return None
 
 def transform_wide_format(df):
     if 'STUDENT ID' not in df.columns or not any(col.startswith('COURSE') for col in df.columns):
-        st.error("The provided file does not match the expected wide format (missing 'STUDENT ID' or COURSE columns).")
+        st.error("File does not match expected wide format.")
         return None
-
     course_cols = [c for c in df.columns if c.startswith('COURSE')]
     id_vars = [c for c in df.columns if c not in course_cols]
-
     df_melted = df.melt(id_vars=id_vars, var_name='Course_Column', value_name='CourseData')
     df_melted = df_melted[df_melted['CourseData'].notnull() & (df_melted['CourseData'] != '')]
-
     split_cols = df_melted['CourseData'].str.split('/', expand=True)
     if split_cols.shape[1] < 3:
         st.error("Could not parse course data. Expected format: COURSECODE/SEMESTER-YEAR/GRADE.")
         return None
-
     df_melted['Course'] = split_cols[0].str.strip().str.upper()
     df_melted['Semester_Year'] = split_cols[1].str.strip()
     df_melted['Grade'] = split_cols[2].str.strip().str.upper()
-
     sem_year_split = df_melted['Semester_Year'].str.split('-', expand=True)
     if sem_year_split.shape[1] < 2:
-        st.error("Semester-Year format not recognized. Expected something like FALL-2016.")
+        st.error("Semester-Year format not recognized. Expected FALL-2016.")
         return None
     df_melted['Semester'] = sem_year_split[0].str.strip().str.title()
     df_melted['Year'] = sem_year_split[1].str.strip()
-
     df_melted = df_melted.rename(columns={'STUDENT ID': 'ID', 'NAME': 'NAME'})
     required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
     if not required_columns.issubset(df_melted.columns):
-        st.error(f"The transformed data is missing some required columns: {required_columns - set(df_melted.columns)}")
+        st.error(f"Transformed data missing columns: {required_columns - set(df_melted.columns)}")
         return None
-
     df_final = df_melted[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']].drop_duplicates()
     return df_final
 
@@ -80,19 +73,10 @@ def read_equivalent_courses(equivalent_courses_df):
             mapping[eq_course] = primary_course
     return mapping
 
-def process_progress_report(
-    df,
-    target_courses,
-    intensive_courses,
-    per_student_assignments=None,
-    equivalent_courses_mapping=None
-):
+def process_progress_report(df, target_courses, intensive_courses, per_student_assignments=None, equivalent_courses_mapping=None):
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
-
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
-
-    # Apply dynamic assignment mapping if available.
     if per_student_assignments:
         allowed_assignment_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -106,16 +90,9 @@ def process_progress_report(
                         return assign_type
             return mapped_course
         df['Mapped Course'] = df.apply(map_assignment, axis=1)
-
-    extra_courses_df = df[
-        (~df['Mapped Course'].isin(target_courses.keys())) &
-        (~df['Mapped Course'].isin(intensive_courses.keys()))
-    ]
+    extra_courses_df = df[ (~df['Mapped Course'].isin(target_courses.keys())) & (~df['Mapped Course'].isin(intensive_courses.keys())) ]
     target_df = df[df['Mapped Course'].isin(target_courses.keys())]
     intensive_df = df[df['Mapped Course'].isin(intensive_courses.keys())]
-
-    # Build pivot tables. Instead of processing each cell to show only one grade,
-    # we simply join all grade values (raw) so that later the toggle can decide.
     pivot_df = target_df.pivot_table(
         index=['ID', 'NAME'],
         columns='Mapped Course',
@@ -128,23 +105,20 @@ def process_progress_report(
         values='Grade',
         aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))
     ).reset_index()
-
-    # Ensure all target courses are represented (even if empty).
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = ""
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
             intensive_pivot_df[course] = ""
-
     return pivot_df, intensive_pivot_df, extra_courses_df, sorted(extra_courses_df['Course'].unique())
 
 def extract_primary_grade(value, course_config, show_all_grades):
     """
-    Given a raw grade string (e.g., "F, F, D") for a course, return:
-      - If show_all_grades is True: return the entire raw string with " | credits" appended.
-      - If show_all_grades is False: return only the primary counted grade (the highest per hierarchy)
-        if found; if none of the grades is counted, return the first grade. In both cases, append " | credits".
+    Given a raw grade string (e.g., "F, F, D") for a course, if show_all_grades is True
+    return the entire raw string appended with " | credits".
+    If show_all_grades is False, return only the primary counted grade (highest per hierarchy)
+    if found; otherwise, the first grade, appended with " | credits".
     """
     from config import get_grade_hierarchy
     if not isinstance(value, str) or value.strip() == "":
@@ -166,10 +140,6 @@ def extract_primary_grade(value, course_config, show_all_grades):
         return f"{best} | {course_config['credits']}"
 
 def calculate_credits(row, courses_config):
-    """
-    Calculates credits based on whether at least one of the grades in the cell (raw string)
-    is within the course's counted grades.
-    """
     completed, registered, remaining = 0, 0, 0
     total_credits = sum(courses_config[course]["credits"] for course in courses_config)
     for course in courses_config:
@@ -178,7 +148,6 @@ def calculate_credits(row, courses_config):
             remaining += courses_config[course]["credits"]
         else:
             grades_list = [g.strip() for g in value.split(",") if g.strip()]
-            # Assume "CR" is not part of counted grades; check for counted grade
             if any(g in courses_config[course]["counted_grades"] for g in grades_list):
                 completed += courses_config[course]["credits"]
             else:
@@ -225,9 +194,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                                     cell.fill = pink_fill
                     else:
                         cell.fill = pink_fill
-                else:
-                    cell.fill = None
-
+                # If the column is not in courses_config, do not set cell.fill.
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     headers_intensive = list(intensive_displayed_df.columns)
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
@@ -253,9 +220,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                                     cell.fill = pink_fill
                     else:
                         cell.fill = pink_fill
-                else:
-                    cell.fill = None
-
+                # Do nothing if no fill is needed.
     workbook.save(output)
     output.seek(0)
     return output
