@@ -63,14 +63,13 @@ else:
             help="If checked, display 'c' if completed and '' if not, instead of the grade letters."
         )
 
-        # --- Advanced Filters (Required Courses) ---
+        # --- Advanced Filters for Required Courses ---
         with st.expander("Advanced Filters"):
             req_id_filter = st.text_input("Filter by Student ID", key="req_id_filter")
             req_name_filter = st.text_input("Filter by Student Name", key="req_name_filter")
-            # New: instead of filtering rows by course values, when one or more courses are selected,
-            # only those course columns will be shown.
+            # New: when courses are selected, only those course columns will be displayed.
             req_courses_filter = st.multiselect("Select Courses to Display", options=list(target_courses.keys()), key="req_courses_filter")
-            # Slider for filtering by completed credits.
+            # Slider filter for completed credits.
             if "# of Credits Completed" in required_courses_df.columns:
                 min_credits = int(required_courses_df["# of Credits Completed"].min())
                 max_credits = int(required_courses_df["# of Credits Completed"].max())
@@ -78,23 +77,27 @@ else:
             else:
                 credits_range = (0, 0)
 
-        # Apply Advanced Filters to required courses DataFrame.
+        # Apply advanced filters to required courses DataFrame.
         displayed_df = required_courses_df.copy()
         if req_id_filter:
             displayed_df = displayed_df[displayed_df["ID"].str.contains(req_id_filter, case=False)]
         if req_name_filter:
             displayed_df = displayed_df[displayed_df["NAME"].str.contains(req_name_filter, case=False)]
-        # If courses are selected, filter columns so that only those courses appear.
+        # If courses are selected, keep only ID, NAME, credit summary, and those course columns.
         if req_courses_filter:
-            # Always keep ID, NAME, and credit summary columns (if present).
             keep_cols = ["ID", "NAME"]
-            # Add selected course columns.
-            keep_cols.extend([course for course in req_courses_filter if course in displayed_df.columns])
-            # Also add any credit-related columns if they exist.
+            # Only add course columns that exist in displayed_df.
+            selected_courses = [course for course in req_courses_filter if course in displayed_df.columns]
+            keep_cols.extend(selected_courses)
             for col in ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]:
                 if col in displayed_df.columns:
                     keep_cols.append(col)
             displayed_df = displayed_df[keep_cols]
+            # Build filtered_target_courses dictionary.
+            filtered_target_courses = {course: target_courses[course] for course in selected_courses}
+        else:
+            filtered_target_courses = target_courses
+
         # Filter rows by credits slider.
         if "# of Credits Completed" in displayed_df.columns:
             displayed_df = displayed_df[(displayed_df["# of Credits Completed"] >= credits_range[0]) & 
@@ -105,31 +108,35 @@ else:
 
         # Process grades based on toggle settings.
         if completed_toggle:
-            for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(
-                        g.strip() in target_courses[course]["counted_grades"] or g.strip().upper() == 'CR'
-                        for g in x.split(",") if g.strip()
-                    ) else ''
-                )
+            for course in filtered_target_courses:
+                if course in displayed_df.columns:
+                    displayed_df[course] = displayed_df[course].apply(
+                        lambda x: 'c' if isinstance(x, str) and any(
+                            g.strip() in filtered_target_courses[course]["counted_grades"] or g.strip().upper() == 'CR'
+                            for g in x.split(",") if g.strip()
+                        ) else ''
+                    )
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(
-                        g.strip() in intensive_courses[course]["counted_grades"] or g.strip().upper() == 'CR'
-                        for g in x.split(",") if g.strip()
-                    ) else ''
-                )
+                if course in intensive_displayed_df.columns:
+                    intensive_displayed_df[course] = intensive_displayed_df[course].apply(
+                        lambda x: 'c' if isinstance(x, str) and any(
+                            g.strip() in intensive_courses[course]["counted_grades"] or g.strip().upper() == 'CR'
+                            for g in x.split(",") if g.strip()
+                        ) else ''
+                    )
         else:
-            for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda x: extract_primary_grade(x, target_courses[course], grade_toggle)
-                )
+            for course in filtered_target_courses:
+                if course in displayed_df.columns:
+                    displayed_df[course] = displayed_df[course].apply(
+                        lambda x: extract_primary_grade(x, filtered_target_courses[course], grade_toggle)
+                    )
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
-                )
+                if course in intensive_displayed_df.columns:
+                    intensive_displayed_df[course] = intensive_displayed_df[course].apply(
+                        lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
+                    )
 
-        # Color formatting: apply per-column formatting based on counted grades.
+        # Define per-column color formatting.
         def make_color_format(course_config):
             def formatter(val):
                 if isinstance(val, str):
@@ -147,10 +154,9 @@ else:
             return formatter
 
         styled_df = displayed_df.style
-        # Apply formatting only to course columns that are in target_courses.
-        for course in target_courses:
+        for course in filtered_target_courses:
             if course in displayed_df.columns:
-                styled_df = styled_df.applymap(make_color_format(target_courses[course]), subset=pd.IndexSlice[:, course])
+                styled_df = styled_df.applymap(make_color_format(filtered_target_courses[course]), subset=pd.IndexSlice[:, course])
         styled_intensive_df = intensive_displayed_df.style
         for course in intensive_courses:
             if course in intensive_displayed_df.columns:
@@ -202,7 +208,7 @@ else:
                 st.rerun()
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
+        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, filtered_target_courses)
         st.session_state['output'] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
         st.download_button(
