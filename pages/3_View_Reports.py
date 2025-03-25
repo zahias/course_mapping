@@ -21,7 +21,7 @@ st.title("View Reports")
 st.markdown("---")
 
 if 'raw_df' not in st.session_state:
-    st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
+    st.warning("No data available. Please upload data in 'Upload Data' and set courses in 'Customize Courses'.")
 else:
     df = st.session_state['raw_df']
     target_courses = st.session_state.get('target_courses')
@@ -37,7 +37,6 @@ else:
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        # Process progress report using dynamic courses configuration.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
@@ -46,15 +45,9 @@ else:
             equivalent_courses_mapping
         )
 
-        # Calculate credits using courses config.
-        credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses), axis=1
-        )
+        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-
-        intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses), axis=1
-        )
+        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
         allowed_assignment_types = get_allowed_assignment_types()
@@ -69,12 +62,11 @@ else:
             help="If checked, shows 'c' if completed and '' if not, instead of actual grade letters."
         )
 
-        # Create a copy of the required courses DataFrame for display.
+        # Create copies for toggling
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
 
         if completed_toggle:
-            # Replace each cell with 'c' if any grade in the cell is counted, else ''.
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
                     lambda x: 'c' if isinstance(x, str) and any(
@@ -90,7 +82,6 @@ else:
                     ) else ''
                 )
         else:
-            # For each course, apply extract_primary_grade based on the Show All Grades toggle.
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
                     lambda x: extract_primary_grade(x, target_courses[course], grade_toggle)
@@ -100,12 +91,11 @@ else:
                     lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
                 )
 
-        # For color formatting, use per-column formatting functions.
         def make_color_format(course_config):
             def formatter(val):
                 if isinstance(val, str):
                     if val.upper().startswith("CR"):
-                        return "background-color: #FFFACD"  # light yellow
+                        return "background-color: #FFFACD"
                     parts = val.split("|")
                     if parts:
                         grade_part = parts[0].strip()
@@ -136,18 +126,15 @@ else:
 
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
-
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.rerun()
 
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
-
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
-
         for idx, row in extra_courses_df.iterrows():
             student_id = row['ID']
             course = row['Course']
@@ -156,17 +143,14 @@ else:
                 for assign_type in allowed_assignment_types:
                     if assignments.get(assign_type) == course:
                         extra_courses_df.at[idx, assign_type] = True
-
         if search_student:
             extra_courses_df = extra_courses_df[
                 extra_courses_df['ID'].str.contains(search_student, case=False, na=False) |
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
-
         from ui_components import add_assignment_selection
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
         errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
-
         if errors:
             st.error("Please resolve the following issues before saving assignments:")
             for error in errors:
@@ -188,19 +172,16 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # Use the toggled displayed DataFrames for the downloadable report.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
         st.session_state['output'] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
-
         st.download_button(
             label="Download Processed Report",
             data=st.session_state['output'],
             file_name="student_progress_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
         import shutil, datetime
         def backup_files():
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
