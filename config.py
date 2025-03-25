@@ -16,13 +16,3 @@ def get_grade_hierarchy():
     Highest: A+ then A, A-, B+, B, B-, C+, C, C-, D+, D, D-.
     """
     return ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"]
-
-def get_course_passing_thresholds():
-    """
-    Returns a dictionary mapping course codes to their passing threshold.
-    For courses not specified, the default threshold 'D-' is used.
-    For example:
-      {'ENGL201': 'C', 'CHEM101': 'D-', ...}
-    In this basic implementation, we return an empty dictionary so that all courses default to 'D-'.
-    """
-    return {}

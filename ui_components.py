@@ -9,7 +9,7 @@ def display_dataframes(styled_df, intensive_styled_df, extra_courses_df, raw_df)
         st.dataframe(styled_df, use_container_width=True)
     with tab2:
         st.subheader("Intensive Courses Progress Report")
-        st.dataframe(styled_intensive_df, use_container_width=True)
+        st.dataframe(intensive_styled_df, use_container_width=True)
     with tab3:
         st.subheader("Extra Courses Detailed View")
         st.dataframe(extra_courses_df, use_container_width=True)
@@ -17,15 +17,18 @@ def display_dataframes(styled_df, intensive_styled_df, extra_courses_df, raw_df)
 def add_assignment_selection(extra_courses_df):
     """
     Displays an inline-editable table for extra courses assignments using st.data_editor.
-    Uses a unique key to avoid duplicate element key errors.
     """
     allowed_assignment_types = get_allowed_assignment_types()
+    # Ensure columns exist: ID, NAME, Course, Grade plus one column per assignment type.
     assignment_columns = ['ID', 'NAME', 'Course', 'Grade'] + allowed_assignment_types
     for col in allowed_assignment_types:
         if col not in extra_courses_df.columns:
             extra_courses_df[col] = False
-    edited_df = st.data_editor(extra_courses_df[assignment_columns],
-                               num_rows="dynamic",
-                               use_container_width=True,
-                               key='assignment_editor')
+
+    edited_df = st.data_editor(
+        extra_courses_df[assignment_columns],
+        num_rows="dynamic",
+        use_container_width=True,
+        key='extra_courses_editor'
+    )
     return edited_df

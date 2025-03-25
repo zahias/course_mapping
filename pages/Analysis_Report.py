@@ -29,7 +29,6 @@ else:
         st.info("No target courses configuration available.")
 
     st.header("Trend Analysis Over Time")
-    # Group by Year and Semester to see the number of records (as a proxy for enrollment or activity)
     trend_df = df.groupby(["Year", "Semester"]).size().reset_index(name="Count")
     trend_df["YearSemester"] = trend_df["Year"].astype(str) + " " + trend_df["Semester"]
     fig2 = px.line(trend_df, x="YearSemester", y="Count", markers=True, title="Course Records Over Time")
@@ -42,12 +41,11 @@ else:
     st.plotly_chart(fig3, use_container_width=True)
 
     st.header("At-Risk Student Identification")
-    # Process required courses to compute credits information.
     if target_courses:
         req_df, _, _, _ = process_progress_report(df, target_courses, intensive_courses)
         credits_df = req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         req_df = pd.concat([req_df, credits_df], axis=1)
-        if "Total Credits" in req_df.columns:
+        if "Total Credits" in req_df.columns and "Total Credits" in req_df.columns:
             req_df["Completion Ratio"] = req_df["# of Credits Completed"] / req_df["Total Credits"]
             at_risk_df = req_df[req_df["Completion Ratio"] < 0.5]
             st.write("At-Risk Students (Completion Ratio < 50%):")
@@ -61,6 +59,7 @@ else:
 
     st.header("Correlation Analysis")
     if target_courses:
+        req_df, _, _, _ = process_progress_report(df, target_courses, intensive_courses)
         if "Total Credits" in req_df.columns:
             corr_df = req_df[["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]]
             fig5 = px.imshow(corr_df.corr(), text_auto=True, title="Correlation Heatmap of Credit Metrics")
