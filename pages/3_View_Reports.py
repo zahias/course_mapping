@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from data_processing import (
     process_progress_report,
     calculate_credits,
@@ -46,7 +45,7 @@ else:
             equivalent_courses_mapping
         )
 
-        # Calculate credits and append to required and intensive DataFrames.
+        # Calculate credits and append to required DataFrame.
         credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
         intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
@@ -56,28 +55,28 @@ else:
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="If checked, display all grades for each course (e.g., 'F, F, D | 3'); if unchecked, only the primary counted grade letter is shown."
+            help="If checked, display all grades (e.g., 'F, F, D | 3'); if unchecked, show only the primary grade letter."
         )
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="If checked, displays 'c' if completed and '' if not, instead of the grade letters."
+            help="If checked, display 'c' if completed and '' if not, instead of the grade letters."
         )
 
-        # Advanced Filters for Required Courses in an expander.
+        # --- Advanced Filters (Required Courses) ---
         with st.expander("Advanced Filters"):
             req_id_filter = st.text_input("Filter by Student ID", key="req_id_filter")
             req_name_filter = st.text_input("Filter by Student Name", key="req_name_filter")
-            req_courses_filter = st.multiselect("Filter by Courses (only rows with a grade present)", 
-                                                options=list(target_courses.keys()), key="req_courses_filter")
-            # Slider for filtering by "# of Credits Completed"
+            # New: instead of filtering rows by course values, when one or more courses are selected,
+            # only those course columns will be shown.
+            req_courses_filter = st.multiselect("Select Courses to Display", options=list(target_courses.keys()), key="req_courses_filter")
+            # Slider for filtering by completed credits.
             if "# of Credits Completed" in required_courses_df.columns:
                 min_credits = int(required_courses_df["# of Credits Completed"].min())
                 max_credits = int(required_courses_df["# of Credits Completed"].max())
-                credits_range = st.slider("Filter by Completed Credits", 
-                                          min_value=min_credits, max_value=max_credits, value=(min_credits, max_credits))
+                credits_range = st.slider("Filter by Completed Credits", min_value=min_credits, max_value=max_credits, value=(min_credits, max_credits))
             else:
-                credits_range = (0,0)
+                credits_range = (0, 0)
 
         # Apply Advanced Filters to required courses DataFrame.
         displayed_df = required_courses_df.copy()
@@ -85,16 +84,23 @@ else:
             displayed_df = displayed_df[displayed_df["ID"].str.contains(req_id_filter, case=False)]
         if req_name_filter:
             displayed_df = displayed_df[displayed_df["NAME"].str.contains(req_name_filter, case=False)]
+        # If courses are selected, filter columns so that only those courses appear.
         if req_courses_filter:
-            for course in req_courses_filter:
-                # Filter out rows where the course column is empty or equals "NR"
-                displayed_df = displayed_df[~displayed_df[course].astype(str).str.strip().isin(["", "NR"])]
-        # Filter by completed credits using the slider.
+            # Always keep ID, NAME, and credit summary columns (if present).
+            keep_cols = ["ID", "NAME"]
+            # Add selected course columns.
+            keep_cols.extend([course for course in req_courses_filter if course in displayed_df.columns])
+            # Also add any credit-related columns if they exist.
+            for col in ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]:
+                if col in displayed_df.columns:
+                    keep_cols.append(col)
+            displayed_df = displayed_df[keep_cols]
+        # Filter rows by credits slider.
         if "# of Credits Completed" in displayed_df.columns:
             displayed_df = displayed_df[(displayed_df["# of Credits Completed"] >= credits_range[0]) & 
                                         (displayed_df["# of Credits Completed"] <= credits_range[1])]
 
-        # For Intensive Courses, no advanced filters are applied.
+        # Intensive courses table remains unfiltered by advanced filters.
         intensive_displayed_df = intensive_courses_df.copy()
 
         # Process grades based on toggle settings.
@@ -123,7 +129,7 @@ else:
                     lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
                 )
 
-        # Define per-column color formatting function.
+        # Color formatting: apply per-column formatting based on counted grades.
         def make_color_format(course_config):
             def formatter(val):
                 if isinstance(val, str):
@@ -141,6 +147,7 @@ else:
             return formatter
 
         styled_df = displayed_df.style
+        # Apply formatting only to course columns that are in target_courses.
         for course in target_courses:
             if course in displayed_df.columns:
                 styled_df = styled_df.applymap(make_color_format(target_courses[course]), subset=pd.IndexSlice[:, course])
@@ -194,7 +201,6 @@ else:
                 st.success("Assignments saved.")
                 st.rerun()
 
-        # Use the toggled displayed DataFrames for report download.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
         st.session_state['output'] = output.getvalue()
