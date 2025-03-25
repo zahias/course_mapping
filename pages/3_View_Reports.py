@@ -5,7 +5,8 @@ from data_processing import (
     process_progress_report,
     calculate_credits,
     save_report_with_formatting,
-    read_equivalent_courses
+    read_equivalent_courses,
+    extract_primary_grade
 )
 from ui_components import display_dataframes, add_assignment_selection
 from logging_utils import log_action
@@ -36,10 +37,8 @@ else:
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        # Get both processed and raw pivot tables from the processing function.
-        (processed_required, processed_intensive,
-         raw_required, raw_intensive,
-         extra_courses_df, _) = process_progress_report(
+        # Process progress report using dynamic courses configuration.
+        required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
             intensive_courses,
@@ -47,90 +46,74 @@ else:
             equivalent_courses_mapping
         )
 
-        # Always calculate credits on the processed versions.
-        credits_df = processed_required.apply(
+        # Calculate credits using courses config.
+        credits_df = required_courses_df.apply(
             lambda row: calculate_credits(row, target_courses), axis=1
         )
-        processed_required = pd.concat([processed_required, credits_df], axis=1)
+        required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
 
-        intensive_credits_df = processed_intensive.apply(
+        intensive_credits_df = intensive_courses_df.apply(
             lambda row: calculate_credits(row, intensive_courses), axis=1
         )
-        processed_intensive = pd.concat([processed_intensive, intensive_credits_df], axis=1)
+        intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
         allowed_assignment_types = get_allowed_assignment_types()
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="If checked, display all grades for each course."
+            help="If checked, display all grades for each course (e.g., 'F, F, D | 3'); if unchecked, only the primary counted grade is shown."
         )
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="If checked, shows 'c' if completed and '' if not instead of actual grades."
+            help="If checked, shows 'c' if completed and '' if not, instead of actual grade letters."
         )
 
-        def extract_primary_grade(value, courses_config, show_all_grades):
-            from config import get_grade_hierarchy
-            if isinstance(value, str):
-                parts = value.split(' | ')
-                grades_part = parts[0]
-                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                if show_all_grades:
-                    return ', '.join(grades_list)
-                else:
-                    grade_order = get_grade_hierarchy()
-                    best_grade = None
-                    for g in grade_order:
-                        if g in grades_list:
-                            best_grade = g
-                            break
-                    if best_grade is not None:
-                        return best_grade
-                    else:
-                        return grades_list[0] if grades_list else ''
-            return value
-
-        # Choose which version to display based on grade_toggle.
-        if grade_toggle:
-            displayed_df = raw_required.copy()   # All grades (raw aggregated)
-            intensive_displayed_df = raw_intensive.copy()
-        else:
-            displayed_df = processed_required.copy()  # Highest grade only
-            intensive_displayed_df = processed_intensive.copy()
+        # Create a copy of the required courses DataFrame for display.
+        displayed_df = required_courses_df.copy()
+        intensive_displayed_df = intensive_courses_df.copy()
 
         if completed_toggle:
+            # Replace each cell with 'c' if any grade in the cell is counted, else ''.
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
                     lambda x: 'c' if isinstance(x, str) and any(
-                        (g.strip() in target_courses[course]["counted_grades"]) or (g.strip().upper() == 'CR')
-                        for g in x.split(' | ')[0].split(',') if g.strip()
+                        g.strip() in target_courses[course]["counted_grades"] or g.strip().upper() == 'CR'
+                        for g in x.split(",") if g.strip()
                     ) else ''
                 )
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(
                     lambda x: 'c' if isinstance(x, str) and any(
-                        (g.strip() in intensive_courses[course]["counted_grades"]) or (g.strip().upper() == 'CR')
-                        for g in x.split(' | ')[0].split(',') if g.strip()
+                        g.strip() in intensive_courses[course]["counted_grades"] or g.strip().upper() == 'CR'
+                        for g in x.split(",") if g.strip()
                     ) else ''
                 )
+        else:
+            # For each course, apply extract_primary_grade based on the Show All Grades toggle.
+            for course in target_courses:
+                displayed_df[course] = displayed_df[course].apply(
+                    lambda x: extract_primary_grade(x, target_courses[course], grade_toggle)
+                )
+            for course in intensive_courses:
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
+                    lambda x: extract_primary_grade(x, intensive_courses[course], grade_toggle)
+                )
 
-        # Per-column color formatting based on each course's counted grades.
+        # For color formatting, use per-column formatting functions.
         def make_color_format(course_config):
             def formatter(val):
                 if isinstance(val, str):
                     if val.upper().startswith("CR"):
                         return "background-color: #FFFACD"  # light yellow
-                    if "|" in val:
-                        parts = val.split("|")
-                        grades_part = parts[0].strip()
-                    else:
-                        grades_part = val.strip()
-                    grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                    if any(g in course_config["counted_grades"] for g in grades_list):
-                        return "background-color: lightgreen"
-                    else:
-                        return "background-color: pink"
+                    parts = val.split("|")
+                    if parts:
+                        grade_part = parts[0].strip()
+                        grades_list = [g.strip() for g in grade_part.split(",") if g.strip()]
+                        if any(g in course_config["counted_grades"] for g in grades_list):
+                            return "background-color: lightgreen"
+                        else:
+                            return "background-color: pink"
                 return ""
             return formatter
 
@@ -194,8 +177,8 @@ else:
                 st.success("Assignments saved.")
                 st.rerun()
 
-        if '# of Credits Completed' in processed_required.columns and '# Remaining' in processed_required.columns:
-            summary_df = processed_required[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
+        if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
+            summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
             fig = px.bar(
                 summary_df,
                 x='NAME',
@@ -205,7 +188,7 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # Use the toggled displayed_df for report download.
+        # Use the toggled displayed DataFrames for the downloadable report.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, target_courses)
         st.session_state['output'] = output.getvalue()
