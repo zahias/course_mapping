@@ -30,13 +30,11 @@ else:
         st.warning("Courses not defined yet. Go to 'Customize Courses'.")
     else:
         per_student_assignments = load_assignments()
-
         eq_df = None
         if os.path.exists('equivalent_courses.csv'):
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        # Process progress report using dynamic courses configuration.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
@@ -45,7 +43,6 @@ else:
             equivalent_courses_mapping
         )
 
-        # Calculate credits and append to required DataFrame.
         credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
         intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
@@ -63,11 +60,9 @@ else:
             help="If checked, display 'c' if completed and '' if not, instead of the grade letters."
         )
 
-        # --- Advanced Filters for Required Courses ---
         with st.expander("Advanced Filters"):
             req_id_filter = st.text_input("Filter by Student ID", key="req_id_filter")
             req_name_filter = st.text_input("Filter by Student Name", key="req_name_filter")
-            # When courses are selected, only those course columns are displayed.
             req_courses_filter = st.multiselect("Select Courses to Display", options=list(target_courses.keys()), key="req_courses_filter")
             if "# of Credits Completed" in required_courses_df.columns:
                 min_credits = int(required_courses_df["# of Credits Completed"].min())
@@ -132,7 +127,7 @@ else:
             def formatter(val):
                 if isinstance(val, str):
                     if val.upper().startswith("CR"):
-                        return "background-color: #FFFACD"  # light yellow
+                        return "background-color: #FFFACD"
                     parts = val.split("|")
                     if parts:
                         grade_part = parts[0].strip()
@@ -156,19 +151,15 @@ else:
         from ui_components import display_dataframes, add_assignment_selection
         display_dataframes(styled_df, styled_intensive_df, extra_courses_df, df)
 
-        # (Removed descriptive text and color legend from the UI.)
-
         st.subheader("Assign Courses")
-        col1, col2 = st.columns(2)
+        # Search bar for extra courses.
+        search_student = st.text_input("Search Extra Courses by Student ID or Name", help="Type to filter extra courses", key="extra_search")
+        # Inline editable assignment table.
+        edited_extra_courses_df = add_assignment_selection(extra_courses_df)
+        # Row of three buttons.
+        col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("Reset All Assignments", help="Clears all saved assignments"):
-                reset_assignments()
-                st.success("All assignments have been reset.")
-                st.experimental_rerun()
-        with col2:
             if st.button("Save Assignments", help="Save the updated assignments to Google Drive"):
-                from assignment_utils import save_assignments, validate_assignments
-                edited_extra_courses_df = add_assignment_selection(extra_courses_df)
                 errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
                 if errors:
                     st.error("Please resolve the following issues before saving assignments:")
@@ -178,8 +169,20 @@ else:
                     save_assignments(updated_per_student_assignments)
                     st.success("Assignments saved.")
                     st.experimental_rerun()
-
-        search_student = st.text_input("Search Extra Courses by Student ID or Name", help="Type to filter extra courses", key="extra_search")
+        with col2:
+            if st.button("Reset All Assignments", help="Clears all saved assignments"):
+                reset_assignments()
+                st.success("All assignments have been reset.")
+                st.experimental_rerun()
+        with col3:
+            st.download_button(
+                label="Download Processed Report",
+                data=st.session_state.get('output', b''),
+                file_name="student_progress_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_btn"
+            )
+        
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -196,26 +199,9 @@ else:
                 extra_courses_df['ID'].str.contains(search_student, case=False, na=False) |
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
-        from ui_components import add_assignment_selection
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
         errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
         if errors:
             st.error("Please resolve the following issues before saving assignments:")
             for error in errors:
                 st.write(f"- {error}")
-        else:
-            if st.button("Save Assignments", help="Save the updated assignments to Google Drive", key="save_assignments_bottom"):
-                save_assignments(updated_per_student_assignments)
-                st.success("Assignments saved.")
-                st.experimental_rerun()
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, filtered_target_courses)
-        st.session_state['output'] = output.getvalue()
-        log_action(f"Report generated at {timestamp}")
-        st.download_button(
-            label="Download Processed Report",
-            data=st.session_state['output'],
-            file_name="student_progress_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
