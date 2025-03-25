@@ -39,7 +39,6 @@ else:
             df,
             target_courses,
             intensive_courses,
-            grading_system,  # assume grading_system is passed as needed
             per_student_assignments,
             equivalent_courses_mapping
         )
@@ -155,9 +154,8 @@ else:
         st.subheader("Assign Courses")
         # Search bar for extra courses.
         search_student = st.text_input("Search Extra Courses by Student ID or Name", help="Type to filter extra courses", key="extra_search")
-        # Inline editable assignment table: call only once.
+        # Inline editable assignment table.
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-        
         # Row of three buttons.
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -184,8 +182,7 @@ else:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_btn"
             )
-
-        # Process extra courses table for search filtering.
+        
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -202,15 +199,9 @@ else:
                 extra_courses_df['ID'].str.contains(search_student, case=False, na=False) |
                 extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
             ]
-        # (We do not call add_assignment_selection() a second time to avoid duplicate keys.)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, filtered_target_courses)
-        st.session_state['output'] = output.getvalue()
-        log_action(f"Report generated at {timestamp}")
-        st.download_button(
-            label="Download Processed Report",
-            data=st.session_state['output'],
-            file_name="student_progress_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        edited_extra_courses_df = add_assignment_selection(extra_courses_df)
+        errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
+        if errors:
+            st.error("Please resolve the following issues before saving assignments:")
+            for error in errors:
+                st.write(f"- {error}")
