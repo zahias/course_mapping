@@ -116,17 +116,25 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
 def extract_primary_grade(value, course_config, show_all_grades):
     """
     If show_all_grades is True, returns the full comma-separated grade string with credits appended.
-    If False, returns only the primary counted grade (the highest per hierarchy) without appending credits.
+    If False, returns only the primary counted grade letter without credits.
+    Also, if the raw value equals "CR" (currently registered), returns "CR".
     """
     from config import get_grade_hierarchy
     if not isinstance(value, str) or value.strip() == "":
         return "NR"
+    # If the value is "CR" (case-insensitive), return it.
+    if value.strip().upper() == "CR":
+        return "CR"
     grades_list = [g.strip() for g in value.split(",") if g.strip()]
     if not grades_list:
         return "NR"
     if show_all_grades:
         return f"{', '.join(grades_list)} | {course_config['credits']}"
     else:
+        # If any grade equals "CR", return it.
+        for g in grades_list:
+            if g.upper() == "CR":
+                return "CR"
         grade_order = get_grade_hierarchy()
         best = None
         for g in grade_order:
@@ -135,7 +143,7 @@ def extract_primary_grade(value, course_config, show_all_grades):
                 break
         if best is None:
             best = grades_list[0]
-        return best  # Return only the grade letter
+        return best
 
 def calculate_credits(row, courses_config):
     completed, registered, remaining = 0, 0, 0
