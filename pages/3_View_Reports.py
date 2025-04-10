@@ -154,7 +154,7 @@ else:
         display_dataframes(styled_df, styled_intensive_df, extra_courses_df, df)
 
         st.subheader("Assign Courses")
-        # Assignment section: search bar, then table, then three buttons in one row.
+        # Assignment section: search bar, then inline-editable table, then three buttons in one row.
         search_assignment = st.text_input("Search Extra Courses", key="assignment_search")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
@@ -173,12 +173,14 @@ else:
                 extra_courses_df['NAME'].str.contains(search_assignment, case=False, na=False)
             ]
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-        errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
-        
+
+        # Row with three buttons
         st.markdown("")
         cols = st.columns(3)
         with cols[0]:
             if st.button("Save Assignments", key="save_assignments_btn"):
+                from assignment_utils import save_assignments, validate_assignments
+                errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
                 if errors:
                     st.error("Please resolve the following issues before saving assignments:")
                     for error in errors:
@@ -186,12 +188,10 @@ else:
                 else:
                     save_assignments(updated_per_student_assignments)
                     st.success("Assignments saved.")
-                    st.experimental_rerun()
         with cols[1]:
             if st.button("Reset All Assignments", key="reset_assignments_btn"):
                 reset_assignments()
                 st.success("All assignments have been reset.")
-                st.experimental_rerun()
         with cols[2]:
             download_btn = st.download_button(
                 label="Download Processed Report",
@@ -206,3 +206,13 @@ else:
         st.session_state['output'] = output.getvalue()
         from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
+
+    # Footer bar at the bottom
+    st.markdown(
+        """
+        <div style="position: fixed; bottom: 0; width: 100%; background-color: #333; color: white; text-align: center; padding: 8px;">
+        Developed by Dr. Zahi Abdul Sater
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
