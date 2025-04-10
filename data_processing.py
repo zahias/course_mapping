@@ -134,16 +134,14 @@ def extract_primary_grade(value, course_config, show_all_grades):
     """
     If show_all_grades is True, returns the full comma-separated grade string with credits appended.
     If False, returns only the primary counted grade letter.
-    If the value is empty, returns "CR | <credits>".
+    If the value is empty, returns "CR" (Currently Registered) without credits.
     """
     from config import get_grade_hierarchy
-    if not isinstance(value, str):
-        return "NR"
-    if value.strip() == "":
-        return f"CR | {course_config['credits']}"
+    if not isinstance(value, str) or value.strip() == "":
+        return "CR"
     grades_list = [g.strip() for g in value.split(",") if g.strip()]
     if not grades_list:
-        return f"CR | {course_config['credits']}"
+        return "CR"
     if show_all_grades:
         return f"{', '.join(grades_list)} | {course_config['credits']}"
     else:
@@ -161,7 +159,7 @@ def calculate_credits(row, courses_config, grading_system=None):
     """
     Calculates:
       - # of Credits Completed
-      - # Registered (if the cell is empty or starts with "CR")
+      - # Registered (if the cell is empty or its value is "CR")
       - # Remaining
       - Total Credits
     """
@@ -172,7 +170,6 @@ def calculate_credits(row, courses_config, grading_system=None):
         if not isinstance(value, str):
             remaining += courses_config[course]["credits"]
         elif value.strip() == "":
-            # If empty, treat as CR (currently registered)
             registered += courses_config[course]["credits"]
         else:
             value_upper = value.upper()
@@ -201,7 +198,7 @@ def determine_course_value(grade, course, courses_dict, grading_system):
     Determines the course value:
       - If grade is NaN: returns 'NR'
       - If grade is empty: returns 'CR | <credits>'
-      - Otherwise, returns a string with all grades and credit amount if passing, or 0 if not.
+      - Otherwise, returns a string with all grades and the credit amount if passed, or 0 if not.
     """
     grade_ranking = {
         'A+': 14, 'A': 13, 'A-': 12,
@@ -261,6 +258,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp,
                 else:
                     if isinstance(value, str):
                         grades_list = [g.strip() for g in value.split(',') if g.strip()]
+                        # Using courses_config['Counted'] is deprecated; rely on passed-in data.
                         if any(g in courses_config.get('Counted', []) or 'CR' == g.upper() for g in grades_list):
                             cell.fill = light_green_fill
                         else:
