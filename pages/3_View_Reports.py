@@ -16,6 +16,36 @@ import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
 from config import get_allowed_assignment_types
 
+# --- Inject custom CSS for footer and button styling ---
+st.markdown(
+    """
+    <style>
+    /* Footer fixed at bottom */
+    .footer {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      width: 100%;
+      background-color: #f2f2f2;
+      color: #555;
+      text-align: center;
+      padding: 5px;
+      font-size: 12px;
+    }
+    /* Style for download button */
+    .download-btn button {
+      background-color: #ff5722;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-size: 14px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("View Reports")
 st.markdown("---")
 
@@ -36,6 +66,7 @@ else:
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
+        # Process the progress report.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
@@ -44,6 +75,7 @@ else:
             equivalent_courses_mapping
         )
 
+        # Calculate credits.
         credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
         intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
@@ -53,15 +85,15 @@ else:
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="If checked, display all grades (e.g., 'F, F, D | 3'); if unchecked, show only the primary grade letter."
+            help="If checked, display full grade strings (e.g., 'F, F, D | 3'); if unchecked, show only the primary grade letter."
         )
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="If checked, display 'c' if completed and '' if not, instead of the grade letters."
+            help="If checked, display 'c' if a course is passed (per its counted grades) and blank if not."
         )
 
-        # --- Advanced Filters for Required Courses ---
+        # Advanced Filters (for Required Courses only)
         with st.expander("Advanced Filters"):
             req_id_filter = st.text_input("Filter by Student ID", key="req_id_filter")
             req_name_filter = st.text_input("Filter by Student Name", key="req_name_filter")
@@ -97,6 +129,7 @@ else:
         intensive_displayed_df = intensive_courses_df.copy()
 
         if completed_toggle:
+            # Replace each course cell with "c" if at least one passing grade exists, else "".
             for course in filtered_target_courses:
                 if course in displayed_df.columns:
                     displayed_df[course] = displayed_df[course].apply(
@@ -154,7 +187,7 @@ else:
         display_dataframes(styled_df, styled_intensive_df, extra_courses_df, df)
 
         st.subheader("Assign Courses")
-        # Assignment section: search bar, then inline-editable table, then three buttons in one row.
+        # Assignment section: search bar, then table, then a row of three buttons.
         search_assignment = st.text_input("Search Extra Courses", key="assignment_search")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
@@ -173,14 +206,12 @@ else:
                 extra_courses_df['NAME'].str.contains(search_assignment, case=False, na=False)
             ]
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
+        errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
 
-        # Row with three buttons
         st.markdown("")
         cols = st.columns(3)
         with cols[0]:
             if st.button("Save Assignments", key="save_assignments_btn"):
-                from assignment_utils import save_assignments, validate_assignments
-                errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
                 if errors:
                     st.error("Please resolve the following issues before saving assignments:")
                     for error in errors:
@@ -193,6 +224,7 @@ else:
                 reset_assignments()
                 st.success("All assignments have been reset.")
         with cols[2]:
+            st.markdown('<div class="download-btn">', unsafe_allow_html=True)
             download_btn = st.download_button(
                 label="Download Processed Report",
                 data=st.session_state.get('output', b""),
@@ -200,6 +232,7 @@ else:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="download_report_btn"
             )
+            st.markdown("</div>", unsafe_allow_html=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp, filtered_target_courses)
@@ -207,12 +240,12 @@ else:
         from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
 
-    # Footer bar at the bottom
-    st.markdown(
-        """
-        <div style="position: fixed; bottom: 0; width: 100%; background-color: #333; color: white; text-align: center; padding: 8px;">
-        Developed by Dr. Zahi Abdul Sater
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+# --- Footer ---
+st.markdown(
+    """
+    <div class="footer">
+    Developed by Dr. Zahi Abdul Sater
+    </div>
+    """,
+    unsafe_allow_html=True
+)
