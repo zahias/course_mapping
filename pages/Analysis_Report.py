@@ -30,7 +30,7 @@ else:
     cohort_df = unique_ids.groupby("Cohort").size().reset_index(name="Student Count")
     fig2 = px.bar(cohort_df, x="Cohort", y="Student Count", title="Unique Student Count by Cohort")
     st.plotly_chart(fig2, use_container_width=True)
-
+ 
     st.header("Overall Course Enrollment by Semester")
     enroll_df = df.groupby(["Year", "Semester"])["ID"].nunique().reset_index(name="Unique Students")
     enroll_df["Year-Semester"] = enroll_df["Year"].astype(str) + " " + enroll_df["Semester"]
