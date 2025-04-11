@@ -19,7 +19,7 @@ from config import get_allowed_assignment_types, GRADE_ORDER, cell_color
 st.title("View Reports")
 st.markdown("---")
 
-if st.button("Reload Equivalent Courses", help="Download latest equivalent courses mapping from Google Drive"):
+if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
@@ -66,13 +66,25 @@ else:
             per_student_assignments,
             equivalent_courses_mapping
         )
-        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
+        credits_df = required_courses_df.apply(
+            lambda row: calculate_credits(row, target_courses), axis=1
+        )
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
+        intensive_credits_df = intensive_courses_df.apply(
+            lambda row: calculate_credits(row, intensive_courses), axis=1
+        )
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
         allowed_assignment_types = get_allowed_assignment_types()
-        grade_toggle = st.checkbox("Show All Grades", value=False, help="If checked, display all grades for each course.")
-        completed_toggle = st.checkbox("Show Completed/Not Completed Only", value=False, help="If checked, shows 'c' for completed courses.")
+        grade_toggle = st.checkbox(
+            "Show All Grades",
+            value=False,
+            help="If checked, display all grades for each course."
+        )
+        completed_toggle = st.checkbox(
+            "Show Completed/Not Completed Only",
+            value=False,
+            help="If checked, shows 'c' if completed and '' if not instead of actual grades."
+        )
         def extract_primary_grade(value):
             if isinstance(value, str):
                 parts = value.split(' | ')
@@ -90,9 +102,13 @@ else:
         intensive_displayed_df = intensive_courses_df.copy()
         if completed_toggle:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else '')
+                displayed_df[course] = displayed_df[course].apply(
+                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
+                )
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else '')
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
+                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
+                )
         else:
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(lambda x: extract_primary_grade(x))
@@ -105,16 +121,16 @@ else:
         from ui_components import display_dataframes
         display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
         st.markdown("**Color Legend:**")
-        st.markdown("- Light Green: Course passed (credits earned)")
+        st.markdown("- Light Green: Completed courses")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
-        st.markdown("- Red: Course failed (credits not earned)")
+        st.markdown("- Pink: Not Completed/Not Counted courses")
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.rerun()
-        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course.")
+        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -157,7 +173,12 @@ else:
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
         st.session_state['output'] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
-        st.download_button(label="Download Processed Report", data=st.session_state['output'], file_name="student_progress_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            label="Download Processed Report",
+            data=st.session_state['output'],
+            file_name="student_progress_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         import shutil, datetime
         def backup_files():
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
