@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
-from config import get_default_target_courses, get_intensive_courses
+from google_drive_utils import authenticate_google_drive, search_file, download_file
+from googleapiclient.discovery import build
 
 st.title("Customize Courses")
 st.markdown("---")
@@ -9,23 +10,47 @@ st.markdown("---")
 st.write(
     "Upload a custom CSV to define courses configuration. The CSV should contain the following columns: "
     "'Course', 'Credits', 'Type' (Required or Intensive), and 'PassingGrade'. "
-    "The 'PassingGrade' column defines the acceptable passing grade(s) for the course (e.g., 'B' or 'A+,A,A-')."
+    "The 'PassingGrade' column defines the minimum grade (or acceptable grades) that counts as passing for that course. "
+    "For example, if 'PassingGrade' is set to 'C', then only grades of C or higher qualify."
 )
 
-with st.expander("Course Customization Options", expanded=True):
-    uploaded_courses = st.file_uploader("Upload Custom Courses (CSV)", type="csv", help="Use the template below.")
-    
-    if st.button("Download Template", help="Download a CSV template for courses configuration."):
-        template_df = pd.DataFrame({
-            'Course': ['ENGL201', 'CHEM201', 'INEG200', 'MATH101'],
-            'Credits': [3, 3, 3, 3],
-            'Type': ['Required', 'Required', 'Intensive', 'Required'],
-            'PassingGrade': ['D-', 'D-', 'A+', 'D-']
-        })
-        csv_data = template_df.to_csv(index=False).encode('utf-8')
-        st.download_button(label="Download Courses Template", data=csv_data, file_name='courses_template.csv', mime='text/csv')
-    
-    # Try loading the configuration from the uploaded file or from a local copy
+with st.expander("Course Configuration Options", expanded=True):
+    uploaded_courses = st.file_uploader(
+        "Upload Courses Configuration (CSV)",
+        type="csv",
+        help="Use the template below."
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Download Template", help="Download CSV template for courses configuration."):
+            template_df = pd.DataFrame({
+                'Course': ['ENGL201', 'CHEM201', 'ARAB201', 'MATH101'],
+                'Credits': [3, 3, 3, 3],
+                'Type': ['Required', 'Required', 'Required', 'Required'],
+                'PassingGrade': ['D-', 'D-', 'A+', 'D-']
+            })
+            csv_data = template_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download Courses Template",
+                data=csv_data,
+                file_name='courses_template.csv',
+                mime='text/csv'
+            )
+    with col2:
+        if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
+            try:
+                creds = authenticate_google_drive()
+                service = build('drive', 'v3', credentials=creds)
+                file_id = search_file(service, "courses_config.csv")
+                if file_id:
+                    download_file(service, file_id, "courses_config.csv")
+                    st.success("Courses configuration reloaded from Google Drive.")
+                else:
+                    st.error("Courses configuration file not found on Google Drive.")
+            except Exception as e:
+                st.error(f"Error reloading courses configuration: {e}")
+
+    # Load courses configuration either from the uploaded file or from a local copy (downloaded from Google Drive)
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
@@ -62,10 +87,13 @@ with st.expander("Course Customization Options", expanded=True):
         else:
             st.error("CSV must contain the columns: 'Course', 'Credits', 'Type', and 'PassingGrade'.")
     else:
-        st.info("No courses configuration available. Please upload a CSV file for courses configuration.")
+        st.info("No courses configuration available. Please upload a CSV or reload from Google Drive.")
 
 with st.expander("Assignment Types Configuration", expanded=True):
-    st.write("Edit the list of assignment types that can be assigned to courses. For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses.")
+    st.write(
+        "Edit the list of assignment types that can be assigned to courses. "
+        "For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses."
+    )
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
     assignment_types_str = st.text_input("Enter assignment types (comma separated)", value=", ".join(default_types))
     if st.button("Save Assignment Types"):
