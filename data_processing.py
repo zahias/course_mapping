@@ -4,62 +4,63 @@ from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
 
 def read_progress_report(filepath):
     try:
-        if filepath.lower().endswith('.xlsx') or filepath.lower().endswith('.xls'):
+        if filepath.lower().endswith(('.xlsx', '.xls')):
             xls = pd.ExcelFile(filepath)
             if 'Progress Report' in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name='Progress Report')
                 required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
                 if not required_columns.issubset(df.columns):
-                    st.error(f"The following required columns are missing in the 'Progress Report' sheet: {required_columns - set(df.columns)}")
+                    st.error(f"Missing required columns in the 'Progress Report' sheet: {required_columns - set(df.columns)}")
                     return None
                 return df
             else:
-                st.info("No 'Progress Report' sheet found. Attempting to process the file as a wide format.")
+                st.info("No 'Progress Report' sheet found – processing as wide format.")
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
-                    st.error("Failed to transform the file in wide format. Please ensure the file matches the expected structure.")
+                    st.error("Transformation of wide format failed. Check the file structure.")
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
             if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
                 return df
             else:
-                st.info("CSV file does not contain the expected columns. Attempting to process as wide format.")
+                st.info("CSV does not contain expected columns – attempting wide format transformation.")
                 df = transform_wide_format(df)
                 return df
         else:
-            st.error("File format not recognized. Please upload an Excel or CSV file.")
+            st.error("Unrecognized file format. Please upload an Excel or CSV file.")
             return None
     except Exception as e:
-        st.error(f"An error occurred while reading the file: {e}")
+        st.error(f"Error reading file: {e}")
         return None
 
 def transform_wide_format(df):
     if 'STUDENT ID' not in df.columns or not any(col.startswith('COURSE') for col in df.columns):
-        st.error("The provided file does not match the expected wide format (missing 'STUDENT ID' or COURSE columns).")
+        st.error("File does not match expected wide format (missing 'STUDENT ID' or COURSE columns).")
         return None
+
     course_cols = [c for c in df.columns if c.startswith('COURSE')]
     id_vars = [c for c in df.columns if c not in course_cols]
     df_melted = df.melt(id_vars=id_vars, var_name='Course_Column', value_name='CourseData')
     df_melted = df_melted[df_melted['CourseData'].notnull() & (df_melted['CourseData'] != '')]
     split_cols = df_melted['CourseData'].str.split('/', expand=True)
     if split_cols.shape[1] < 3:
-        st.error("Could not parse course data. Expected format: COURSECODE/SEMESTER-YEAR/GRADE.")
+        st.error("Failed to parse course data. Expected format: COURSECODE/SEMESTER-YEAR/GRADE.")
         return None
     df_melted['Course'] = split_cols[0].str.strip().str.upper()
     df_melted['Semester_Year'] = split_cols[1].str.strip()
     df_melted['Grade'] = split_cols[2].str.strip().str.upper()
     sem_year_split = df_melted['Semester_Year'].str.split('-', expand=True)
     if sem_year_split.shape[1] < 2:
-        st.error("Semester-Year format not recognized. Expected something like FALL-2016.")
+        st.error("Unrecognized Semester-Year format. Expected e.g. FALL-2016.")
         return None
     df_melted['Semester'] = sem_year_split[0].str.strip().str.title()
     df_melted['Year'] = sem_year_split[1].str.strip()
     df_melted = df_melted.rename(columns={'STUDENT ID': 'ID', 'NAME': 'NAME'})
     required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
     if not required_columns.issubset(df_melted.columns):
-        st.error(f"The transformed data is missing some required columns: {required_columns - set(df_melted.columns)}")
+        st.error(f"Missing required columns after transformation: {required_columns - set(df_melted.columns)}")
         return None
     df_final = df_melted[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']].drop_duplicates()
     return df_final
@@ -148,6 +149,7 @@ def determine_course_value(grade, course, courses_dict):
     elif grade == '':
         return f'CR | {credits}'
     else:
+        # Split the grade string by commas in case there are multiple grades
         grades = grade.split(', ')
         grades_cleaned = [g.strip() for g in grades if g.strip()]
         all_grades = ', '.join(grades_cleaned)
@@ -194,6 +196,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     workbook = Workbook()
     ws_required = workbook.active
     ws_required.title = "Required Courses"
+    # Predefine fills for CR and default fallback
     light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
     pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
