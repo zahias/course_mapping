@@ -176,7 +176,7 @@ def calculate_credits(row, courses_dict):
                 parts = value.split('|')
                 grades_part = parts[0].strip()
                 grades_list = [g.strip().upper() for g in grades_part.split(',') if g.strip()]
-                passing_str = info["PassingGrades"]
+                passing_str = info["PassingGrade"]
                 passing_list = [g.strip().upper() for g in passing_str.split(",")] if isinstance(passing_str, str) else []
                 passing = any(g in passing_list for g in grades_list)
                 if passing:
