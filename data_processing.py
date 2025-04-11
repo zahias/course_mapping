@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from config import get_allowed_assignment_types, GRADE_ORDER
+from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
 
 def read_progress_report(filepath):
     try:
@@ -151,12 +151,7 @@ def determine_course_value(grade, course, courses_dict):
         grades = grade.split(', ')
         grades_cleaned = [g.strip() for g in grades if g.strip()]
         all_grades = ', '.join(grades_cleaned)
-        passing = False
-        for g in grades_cleaned:
-            if g in GRADE_ORDER and threshold in GRADE_ORDER:
-                if GRADE_ORDER.index(g) <= GRADE_ORDER.index(threshold):
-                    passing = True
-                    break
+        passing = any(is_passing_grade(g, threshold) for g in grades_cleaned)
         if passing:
             return f'{all_grades} | {credits}'
         else:
@@ -179,12 +174,7 @@ def calculate_credits(row, courses_dict):
                 parts = value.split('|')
                 grades_part = parts[0].strip()
                 grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                passing = False
-                for g in grades_list:
-                    if g in GRADE_ORDER and info["PassingGrade"].upper() in GRADE_ORDER:
-                        if GRADE_ORDER.index(g) <= GRADE_ORDER.index(info["PassingGrade"].upper()):
-                            passing = True
-                            break
+                passing = any(is_passing_grade(g, info["PassingGrade"].upper()) for g in grades_list)
                 if passing:
                     completed += credit
                 else:
@@ -199,6 +189,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     from openpyxl import Workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
     from openpyxl.styles import PatternFill, Font, Alignment
+    from config import cell_color
     output = io.BytesIO()
     workbook = Workbook()
     ws_required = workbook.active
@@ -217,12 +208,13 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                 elif value == '':
                     cell.fill = pink_fill
                 else:
-                    if isinstance(value, str):
-                        grades_list = [g.strip() for g in value.split(',') if g.strip()]
-                        if any(g in GRADE_ORDER for g in grades_list):
-                            cell.fill = light_green_fill
-                        else:
-                            cell.fill = pink_fill
+                    style_str = cell_color(str(value))
+                    if "lightgreen" in style_str:
+                        cell.fill = light_green_fill
+                    elif "#FFFACD" in style_str:
+                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                    else:
+                        cell.fill = pink_fill
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
@@ -236,12 +228,13 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                 elif value == '':
                     cell.fill = pink_fill
                 else:
-                    if isinstance(value, str):
-                        grades_list = [g.strip() for g in value.split(',') if g.strip()]
-                        if any(g in GRADE_ORDER for g in grades_list):
-                            cell.fill = light_green_fill
-                        else:
-                            cell.fill = pink_fill
+                    style_str = cell_color(str(value))
+                    if "lightgreen" in style_str:
+                        cell.fill = light_green_fill
+                    elif "#FFFACD" in style_str:
+                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                    else:
+                        cell.fill = pink_fill
     workbook.save(output)
     output.seek(0)
     return output

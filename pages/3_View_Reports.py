@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from config import get_allowed_assignment_types, GRADE_ORDER
+from config import get_allowed_assignment_types, GRADE_ORDER, cell_color
 
 st.title("View Reports")
 st.markdown("---")
@@ -115,16 +115,7 @@ else:
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: extract_primary_grade(x))
         def color_format(val):
-            if isinstance(val, str):
-                value_upper = val.upper()
-                if value_upper.startswith('CR'):
-                    return 'background-color: #FFFACD'
-                grades_list = [g.strip() for g in val.split(',') if g.strip()]
-                if any(g in GRADE_ORDER for g in grades_list):
-                    return 'background-color: lightgreen'
-                else:
-                    return 'background-color: pink'
-            return ''
+            return cell_color(str(val))
         styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
         intensive_styled_df = intensive_displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(intensive_courses.keys())])
         from ui_components import display_dataframes
