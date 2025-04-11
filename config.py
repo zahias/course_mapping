@@ -15,15 +15,8 @@ def get_allowed_assignment_types():
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks if the given grade is one of the passing grades specified in the course configuration.
-    
-    Parameters:
-      - grade: The grade to evaluate (e.g., "B+").
-      - passing_grades_str: A comma-separated string of all passing grades (e.g., "A+,A,A-").
-    
-    Returns:
-      - True if the grade (after uppercasing and trimming) is contained in the passing grades list.
-      - False otherwise.
+    Checks if the given grade (after trimming and uppercasing) is one of the allowed passing grades.
+    passing_grades_str is a comma-separated string (e.g. "A+,A,A-").
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
@@ -31,40 +24,44 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility, export is_passing_grade as an alias to is_passing_grade_from_list.
+# For backward compatibility:
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Returns a CSS style string for the background color of a cell based on its value.
-    
-    Expects the cell value to be formatted as:
-          "grade1, grade2, ... | credit"
-    For example: "B, C | 3" or "C, D | 0".
+    Returns a CSS style string for the background color of a cell based on the value.
     
     Rules:
-      - If the value starts with "CR", returns light yellow (#FFFACD) to indicate a currently registered course.
-      - Otherwise, if the cell splits into two parts using the pipe ("|"):
-            * The second part is interpreted as the earned credit.
-            * If the credit equals 0 (i.e. failing), returns red.
-            * If the credit is greater than 0 (i.e. passing), returns light green.
-      - In all other cases, returns pink.
+      - If the value starts with "CR", return light yellow (#FFFACD) for currently registered.
+      - Otherwise, split the cell value by the pipe symbol.
+          * If the right-hand side is numeric, then if it is > 0 the cell is light green, otherwise pink.
+          * If the marker is nonnumeric, then "PASS" yields light green and "FAIL" yields pink.
+      - Fallback: if no proper marker is found, return pink.
     """
     if not isinstance(value, str):
         return ''
-    value_upper = value.upper()
-    if value_upper.startswith('CR'):
-        return 'background-color: #FFFACD'
+    value = value.strip()
+    if value.upper().startswith("CR"):
+        return "background-color: #FFFACD"
     parts = value.split('|')
     if len(parts) == 2:
-        credit_str = parts[1].strip()
+        marker = parts[1].strip()
         try:
-            credits = float(credit_str)
-        except ValueError:
-            credits = None
-        if credits is not None:
-            if credits == 0:
-                return 'background-color: red'
+            num = int(marker)
+            if num > 0:
+                return "background-color: lightgreen"
             else:
-                return 'background-color: lightgreen'
-    return 'background-color: pink'
+                return "background-color: pink"
+        except ValueError:
+            # Non-numeric marker; check for PASS or FAIL
+            if marker.upper() == "PASS":
+                return "background-color: lightgreen"
+            elif marker.upper() == "FAIL":
+                return "background-color: pink"
+            else:
+                return "background-color: pink"
+    # Fallback: if we cannot split properly, check for any valid grade token in the string.
+    tokens = value.split(',')
+    if any(t.strip().upper() in GRADE_ORDER for t in tokens):
+        return "background-color: lightgreen"
+    return "background-color: pink"

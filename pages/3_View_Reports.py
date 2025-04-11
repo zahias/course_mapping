@@ -19,7 +19,7 @@ from config import get_allowed_assignment_types, GRADE_ORDER, cell_color
 st.title("View Reports")
 st.markdown("---")
 
-if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
+if st.button("Reload Equivalent Courses", help="Download latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
@@ -46,13 +46,13 @@ if st.button("Reload Courses Configuration", help="Reload courses configuration 
         st.error(f"Error reloading courses configuration: {e}")
 
 if 'raw_df' not in st.session_state:
-    st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
+    st.warning("No data available. Please upload data in 'Upload Data' and set courses in 'Customize Courses'.")
 else:
     df = st.session_state['raw_df']
     target_courses = st.session_state.get('target_courses')
     intensive_courses = st.session_state.get('intensive_courses')
     if target_courses is None or intensive_courses is None:
-        st.warning("Courses not defined yet. Go to 'Customize Courses'.")
+        st.warning("Courses not defined. Go to 'Customize Courses'.")
     else:
         per_student_assignments = load_assignments()
         eq_df = None
@@ -60,60 +60,51 @@ else:
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
-            df,
-            target_courses,
-            intensive_courses,
-            per_student_assignments,
-            equivalent_courses_mapping
+            df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
         )
-        credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses), axis=1
-        )
+        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-        intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses), axis=1
-        )
+        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
         allowed_assignment_types = get_allowed_assignment_types()
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="If checked, display all grades for each course."
+            help="Display all grades if checked."
         )
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="If checked, shows 'c' if completed and '' if not instead of actual grades."
+            help="Show 'c' if course is passed; blank if not."
         )
-        def extract_primary_grade(value):
-            if isinstance(value, str):
-                parts = value.split(' | ')
-                grades_part = parts[0]
-                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
-                if grade_toggle:
-                    return ', '.join(grades_list)
-                else:
-                    for grade in GRADE_ORDER:
-                        if grade in grades_list:
-                            return grade
-                    return grades_list[0] if grades_list else ''
-            return value
+        def extract_primary_grade(x):
+            # Expecting x in the form "grade tokens | marker"
+            if isinstance(x, str) and "|" in x:
+                parts = x.split('|')
+                marker = parts[1].strip()
+                try:
+                    num = int(marker)
+                    return "c" if num > 0 else ""
+                except ValueError:
+                    return "c" if marker.upper() == "PASS" else ""
+            return x
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
         if completed_toggle:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
-                )
-            for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
-                )
-        else:
-            for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(lambda x: extract_primary_grade(x))
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: extract_primary_grade(x))
+        else:
+            def full_grade(x):
+                if isinstance(x, str):
+                    parts = x.split('|')
+                    return parts[0].strip() if len(parts) > 0 else x
+                return x
+            for course in target_courses:
+                displayed_df[course] = displayed_df[course].apply(lambda x: full_grade(x))
+            for course in intensive_courses:
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: full_grade(x))
         def color_format(val):
             return cell_color(str(val))
         styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
@@ -121,16 +112,16 @@ else:
         from ui_components import display_dataframes
         display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
         st.markdown("**Color Legend:**")
-        st.markdown("- Light Green: Completed courses")
-        st.markdown("- Light Yellow: Currently Registered (CR) courses")
-        st.markdown("- Pink: Not Completed/Not Counted courses")
+        st.markdown("- Light Green: Passed (or registered), including 0‑credit courses marked PASS")
+        st.markdown("- Light Yellow: Currently Registered (CR)")
+        st.markdown("- Pink: Not Passed (or no valid grade)")
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.rerun()
-        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
+        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -155,7 +146,7 @@ else:
             for error in errors:
                 st.write(f"- {error}")
         else:
-            if st.button("Save Assignments", help="Save the updated assignments to Google Drive"):
+            if st.button("Save Assignments", help="Save updated assignments to Google Drive"):
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
                 st.rerun()
