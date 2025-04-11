@@ -83,7 +83,7 @@ else:
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="If checked, show 'c' only for courses that are passed (i.e. credit awarded is not 0)."
+            help="If checked, shows 'c' if completed and '' if not instead of actual grades."
         )
         def extract_primary_grade(value):
             if isinstance(value, str):
@@ -103,11 +103,11 @@ else:
         if completed_toggle:
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and ('|' in x) and (x.split('|')[1].strip() != "0") else ''
+                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
                 )
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and ('|' in x) and (x.split('|')[1].strip() != "0") else ''
+                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
                 )
         else:
             for course in target_courses:
@@ -121,9 +121,9 @@ else:
         from ui_components import display_dataframes
         display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
         st.markdown("**Color Legend:**")
-        st.markdown("- Light Green: Passed courses (nonzero credits)")
+        st.markdown("- Light Green: Completed courses")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
-        st.markdown("- Pink: Not Passed/Not Counted courses")
+        st.markdown("- Pink: Not Completed/Not Counted courses")
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
