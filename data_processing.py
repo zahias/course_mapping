@@ -75,15 +75,17 @@ def read_equivalent_courses(equivalent_courses_df):
 
 def determine_course_value(grade, course, courses_dict):
     """
-    Returns a dictionary with keys:
-      - "display": a string "grade tokens | marker"
-      - "passed": Boolean True if passed, False if not, None for CR cells.
+    Returns a dictionary with:
+      - "display": a string of the form "grade tokens | marker"
+      - "passed": Boolean True if the course is passed, False if not, or None for CR cells.
     
-    For a missing grade, returns {"display": "NR", "passed": False}.
-    For an empty grade, returns {"display": f"CR | {credits}", "passed": None}.
-    Otherwise, splits the grade tokens, normalizes them, and checks if any are in the course's PassingGrades.
-      - If the course has credits > 0, marker is the credit amount (or 0 if failed).
-      - If the course has 0 credits, marker is "PASS" or "FAIL".
+    For a missing grade (NaN): returns {"display": "NR", "passed": False}.
+    For an empty grade (currently registered): returns {"display": f"CR | {credits}", "passed": None}.
+    Otherwise, it:
+      1. Normalizes the student's grade tokens.
+      2. Compares them to the course's PassingGrades (a comma-separated list from the config).
+      3. For courses with credits > 0, if any token is found in the passing list, it returns the full credit; else 0.
+      4. For 0-credit courses, it returns "PASS" if passed, else "FAIL".
     """
     info = courses_dict[course]
     credits = info["Credits"]
@@ -100,6 +102,8 @@ def determine_course_value(grade, course, courses_dict):
         else:
             marker = "PASS" if passed else "FAIL"
         display = f"{', '.join(grades)} | {marker}"
+        # Debug: Uncomment the following line to log processing details:
+        # st.write(f"Debug: course={course}, raw grade={grade}, result={{'display': '{display}', 'passed': {passed}}}")
         return {"display": display, "passed": passed}
 
 def process_progress_report(

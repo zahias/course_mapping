@@ -16,6 +16,7 @@ def get_allowed_assignment_types():
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
     Checks if the given grade is among the allowed passing grades specified in the course configuration.
+    It normalizes both the grade and the list to uppercase.
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
@@ -23,15 +24,17 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
+# Export an alias for backward compatibility.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color_obj(cell) -> str:
     """
     Expects cell to be a dict with keys "display" and "passed".
     Returns a CSS style string for the background color.
+    
     - If the cell's display starts with "CR", returns light yellow (#FFFACD).
-    - If the cell's passed flag is True, returns light green.
-    - If the cell's passed flag is False, returns pink.
+    - If the "passed" flag is True, returns light green.
+    - If the "passed" flag is False, returns pink.
     - Otherwise, defaults to pink.
     """
     if not isinstance(cell, dict):

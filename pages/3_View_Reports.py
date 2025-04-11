@@ -84,11 +84,11 @@ else:
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="Replace full course grade values with 'c' for passed courses, else show full grade."
+            help="Replace full course grade values with 'c' for passed courses; otherwise, show the full grade."
         )
 
         def extract_display(cell):
-            """Extracts display string from cell object, applying the grade_toggle."""
+            """Extracts the display text from a cell dictionary using the current toggle."""
             if isinstance(cell, dict):
                 disp = cell.get("display", "").strip()
                 tokens = [g.strip() for g in disp.split(" | ")[0].split(",") if g.strip()]
@@ -102,7 +102,6 @@ else:
             else:
                 return str(cell).strip()
 
-        # Build displayed dataframes based on toggles.
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
 
@@ -137,7 +136,7 @@ else:
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Failed or not counted courses")
         
-        # --- Assignment Section (unchanged) ---
+        # --- Assignment Section ---
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
@@ -199,6 +198,7 @@ else:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
+        # --- Manual Backup ---
         import shutil, datetime
         def backup_files():
             timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
