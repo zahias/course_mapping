@@ -16,14 +16,6 @@ def get_allowed_assignment_types():
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
     Checks if the given grade is among the allowed passing grades specified in the course configuration.
-    
-    Parameters:
-      - grade: The grade to evaluate (e.g., "B+").
-      - passing_grades_str: A comma-separated string of all passing grades (e.g., "A+,A,A-").
-    
-    Returns:
-      - True if the grade (after uppercasing and trimming) is contained in the list.
-      - False otherwise.
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
@@ -31,14 +23,12 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color_obj(cell) -> str:
     """
     Expects cell to be a dict with keys "display" and "passed".
     Returns a CSS style string for the background color.
-    
     - If the cell's display starts with "CR", returns light yellow (#FFFACD).
     - If the cell's passed flag is True, returns light green.
     - If the cell's passed flag is False, returns pink.

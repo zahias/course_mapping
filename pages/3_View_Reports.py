@@ -19,7 +19,6 @@ from config import get_allowed_assignment_types, GRADE_ORDER, cell_color_obj
 st.title("View Reports")
 st.markdown("---")
 
-# Reload buttons for equivalent courses and courses configuration
 if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
@@ -80,16 +79,16 @@ else:
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="When checked, display all recorded grade tokens; otherwise, show only the primary grade."
+            help="Display all recorded grade tokens if checked; otherwise, show only the primary grade."
         )
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="When checked, replace course grade values with 'c' for passed courses; otherwise, show the full grade."
+            help="Replace full course grade values with 'c' for passed courses, else show full grade."
         )
 
-        # Helper: Extract display text from a cell object.
         def extract_display(cell):
+            """Extracts display string from cell object, applying the grade_toggle."""
             if isinstance(cell, dict):
                 disp = cell.get("display", "").strip()
                 tokens = [g.strip() for g in disp.split(" | ")[0].split(",") if g.strip()]
@@ -103,12 +102,11 @@ else:
             else:
                 return str(cell).strip()
 
-        # Process displayed_df and intensive_displayed_df based on toggles.
+        # Build displayed dataframes based on toggles.
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
 
         if completed_toggle:
-            # Replace each cell with 'c' if the course is passed.
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
                     lambda cell: "c" if (isinstance(cell, dict) and cell.get("passed") is True) else ""
@@ -123,8 +121,6 @@ else:
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(extract_display)
 
-        # --- Cell Formatting ---
-        # Use the cell_color_obj function to style cells based on the dedicated flag.
         def color_format(cell):
             if isinstance(cell, dict):
                 return cell_color_obj(cell)
@@ -133,7 +129,6 @@ else:
         styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
         intensive_styled_df = intensive_displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(intensive_courses.keys())])
         
-        # Display the processed report across tabs.
         from ui_components import display_dataframes
         display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
         
@@ -192,7 +187,6 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
         
-        # --- Report Download and Backup ---
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
         st.session_state['output'] = output.getvalue()

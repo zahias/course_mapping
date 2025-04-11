@@ -75,15 +75,15 @@ def read_equivalent_courses(equivalent_courses_df):
 
 def determine_course_value(grade, course, courses_dict):
     """
-    Returns a dictionary with:
-      - "display": A string in the format "grade tokens | marker"
-      - "passed": Boolean True/False (or None for CR cells)
+    Returns a dictionary with keys:
+      - "display": a string "grade tokens | marker"
+      - "passed": Boolean True if passed, False if not, None for CR cells.
     
-    For a missing grade (NaN): returns {"display": "NR", "passed": False}.
-    For an empty grade (currently registered): returns {"display": f"CR | {credits}", "passed": None}.
-    Otherwise, it splits the grade tokens and checks if any token is in the passing grades list
-    (from the course configuration's PassingGrades column). For courses with credits > 0, marker is numeric.
-    For 0-credit courses, marker is "PASS" or "FAIL".
+    For a missing grade, returns {"display": "NR", "passed": False}.
+    For an empty grade, returns {"display": f"CR | {credits}", "passed": None}.
+    Otherwise, splits the grade tokens, normalizes them, and checks if any are in the course's PassingGrades.
+      - If the course has credits > 0, marker is the credit amount (or 0 if failed).
+      - If the course has 0 credits, marker is "PASS" or "FAIL".
     """
     info = courses_dict[course]
     credits = info["Credits"]
@@ -93,10 +93,8 @@ def determine_course_value(grade, course, courses_dict):
     elif grade == '':
         return {"display": f"CR | {credits}", "passed": None}
     else:
-        # Process and clean grade tokens.
         grades = [g.strip().upper() for g in grade.split(',') if g.strip()]
         passed = any(g in passing_grades for g in grades)
-        # Build display string.
         if credits > 0:
             marker = str(credits if passed else 0)
         else:
@@ -145,7 +143,6 @@ def process_progress_report(
         values='Grade',
         aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))
     ).reset_index()
-    # For every target course, transform cell values using determine_course_value.
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
@@ -180,10 +177,8 @@ def calculate_credits(row, courses_dict):
         cell = row.get(course, None)
         if isinstance(cell, dict):
             disp = cell.get("display", "").strip().upper()
-            # If the course is currently registered
             if disp.startswith("CR"):
                 registered += credit
-            # If not registered
             elif disp == "NR":
                 remaining += credit
             else:
@@ -206,12 +201,10 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     workbook = Workbook()
     ws_required = workbook.active
     ws_required.title = "Required Courses"
-    # Predefine fills for CR and defaults.
     light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
     pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
-            # If the cell is a dict, get the display string.
             cell_val = value["display"] if isinstance(value, dict) else str(value)
             cell_obj = value if isinstance(value, dict) else {}
             cell = ws_required.cell(row=r_idx, column=c_idx, value=cell_val)
