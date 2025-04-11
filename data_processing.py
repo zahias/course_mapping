@@ -224,4 +224,57 @@ def calculate_credits(row, courses_dict):
     return pd.Series([completed, registered, remaining, total_credits],
                      index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
 
-def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp
+def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
+    import io
+    from openpyxl import Workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.styles import PatternFill, Font, Alignment
+    from config import cell_color
+    output = io.BytesIO()
+    workbook = Workbook()
+    ws_required = workbook.active
+    ws_required.title = "Required Courses"
+    light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
+    pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
+    for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
+        for c_idx, value in enumerate(row, 1):
+            cell = ws_required.cell(row=r_idx, column=c_idx, value=value)
+            if r_idx == 1:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            else:
+                if value == 'c':
+                    cell.fill = light_green_fill
+                elif value == '':
+                    cell.fill = pink_fill
+                else:
+                    style_str = cell_color(str(value))
+                    if "lightgreen" in style_str:
+                        cell.fill = light_green_fill
+                    elif "#FFFACD" in style_str:
+                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                    else:
+                        cell.fill = pink_fill
+    ws_intensive = workbook.create_sheet(title="Intensive Courses")
+    for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
+        for c_idx, value in enumerate(row, 1):
+            cell = ws_intensive.cell(row=r_idx, column=c_idx, value=value)
+            if r_idx == 1:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            else:
+                if value == 'c':
+                    cell.fill = light_green_fill
+                elif value == '':
+                    cell.fill = pink_fill
+                else:
+                    style_str = cell_color(str(value))
+                    if "lightgreen" in style_str:
+                        cell.fill = light_green_fill
+                    elif "#FFFACD" in style_str:
+                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                    else:
+                        cell.fill = pink_fill
+    workbook.save(output)
+    output.seek(0)
+    return output
