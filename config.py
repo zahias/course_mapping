@@ -31,6 +31,9 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
+# For backward compatibility, export is_passing_grade as an alias to is_passing_grade_from_list.
+is_passing_grade = is_passing_grade_from_list
+
 def cell_color(value: str) -> str:
     """
     Returns a CSS style string for the background color of a cell based on its value.
