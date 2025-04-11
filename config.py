@@ -10,18 +10,18 @@ def get_allowed_assignment_types():
 
 def is_passing_grade(grade: str, passing_grades: list) -> bool:
     """
-    Returns True if the provided grade (after stripping and uppercasing)
-    is present in the list of passing grades (each element compared in uppercase).
+    Returns True if 'grade' (assumed to be uppercase and trimmed)
+    is in the list 'passing_grades'.
     """
-    return grade.strip().upper() in [g.strip().upper() for g in passing_grades]
+    return grade in passing_grades
 
 def cell_color(value: str) -> str:
     """
-    Returns a CSS style string for cell background color based on the grade value.
-    - If the value starts with "CR", return light yellow (#FFFACD).
-    - Otherwise, split the value by the pipe character ("|") to extract the grade part.
-      If any token in that part is one of our valid grades (present in GRADE_ORDER), return light green;
-      otherwise, return pink.
+    Returns a CSS style string for the cell background based on the cell's value:
+      - If the value starts with "CR", returns light yellow (#FFFACD).
+      - Otherwise, splits the value by '|' to extract the grade portion.
+        If any token (after trimming) is one of the valid grades (present in GRADE_ORDER), returns light green;
+        otherwise, returns pink.
     """
     if not isinstance(value, str):
         return ''
