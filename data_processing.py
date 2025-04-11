@@ -18,18 +18,18 @@ def read_progress_report(filepath):
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
-                    st.error("Wide format transformation failed. Check file structure.")
+                    st.error("Transformation of wide format failed. Check file structure.")
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
             if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
                 return df
             else:
-                st.info("CSV file does not have expected columns – attempting wide format transformation.")
+                st.info("CSV does not contain expected columns – attempting wide format transformation.")
                 df = transform_wide_format(df)
                 return df
         else:
-            st.error("Unrecognized file format. Upload an Excel or CSV file.")
+            st.error("Unrecognized file format. Please upload an Excel or CSV file.")
             return None
     except Exception as e:
         st.error(f"Error reading file: {e}")
@@ -37,8 +37,9 @@ def read_progress_report(filepath):
 
 def transform_wide_format(df):
     if 'STUDENT ID' not in df.columns or not any(col.startswith('COURSE') for col in df.columns):
-        st.error("Wide format file missing 'STUDENT ID' or COURSE columns.")
+        st.error("File does not match expected wide format (missing 'STUDENT ID' or COURSE columns).")
         return None
+
     course_cols = [c for c in df.columns if c.startswith('COURSE')]
     id_vars = [c for c in df.columns if c not in course_cols]
     df_melted = df.melt(id_vars=id_vars, var_name='Course_Column', value_name='CourseData')
@@ -52,14 +53,14 @@ def transform_wide_format(df):
     df_melted['Grade'] = split_cols[2].str.strip().str.upper()
     sem_year_split = df_melted['Semester_Year'].str.split('-', expand=True)
     if sem_year_split.shape[1] < 2:
-        st.error("Semester-Year format unrecognized; expected like FALL-2016.")
+        st.error("Unrecognized Semester-Year format. Expected e.g. FALL-2016.")
         return None
     df_melted['Semester'] = sem_year_split[0].str.strip().str.title()
     df_melted['Year'] = sem_year_split[1].str.strip()
     df_melted = df_melted.rename(columns={'STUDENT ID': 'ID', 'NAME': 'NAME'})
     required_columns = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
     if not required_columns.issubset(df_melted.columns):
-        st.error(f"Missing columns after transformation: {required_columns - set(df_melted.columns)}")
+        st.error(f"Missing required columns after transformation: {required_columns - set(df_melted.columns)}")
         return None
     df_final = df_melted[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']].drop_duplicates()
     return df_final
@@ -73,7 +74,13 @@ def read_equivalent_courses(equivalent_courses_df):
             mapping[eq_course] = primary_course
     return mapping
 
-def process_progress_report(df, target_courses, intensive_courses, per_student_assignments=None, equivalent_courses_mapping=None):
+def process_progress_report(
+    df,
+    target_courses,
+    intensive_courses,
+    per_student_assignments=None,
+    equivalent_courses_mapping=None
+):
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
@@ -111,11 +118,15 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
-        pivot_df[course] = pivot_df[course].apply(lambda grade: determine_course_value(grade, course, target_courses))
+        pivot_df[course] = pivot_df[course].apply(
+            lambda grade: determine_course_value(grade, course, target_courses)
+        )
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
             intensive_pivot_df[course] = None
-        intensive_pivot_df[course] = intensive_pivot_df[course].apply(lambda grade: determine_course_value(grade, course, intensive_courses))
+        intensive_pivot_df[course] = intensive_pivot_df[course].apply(
+            lambda grade: determine_course_value(grade, course, intensive_courses)
+        )
     result_df = pivot_df[['ID', 'NAME'] + list(target_courses.keys())]
     intensive_result_df = intensive_pivot_df[['ID', 'NAME'] + list(intensive_courses.keys())]
     if per_student_assignments:
@@ -123,57 +134,32 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
         for student_id, assignments in per_student_assignments.items():
             for assign_type, course in assignments.items():
                 assigned_courses.append((student_id, course))
-        extra_courses_df = extra_courses_df[~extra_courses_df.apply(lambda row: (str(row['ID']), row['Course']) in assigned_courses, axis=1)]
+        extra_courses_df = extra_courses_df[
+            ~extra_courses_df.apply(lambda row: (str(row['ID']), row['Course']) in assigned_courses, axis=1)
+        ]
     extra_courses_list = sorted(extra_courses_df['Course'].unique())
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict):
-    """
-    Processes a raw grade cell for a given course and returns a string of the form:
-        "{all_grades} | {credits}"
-    where credits will be 0 if no grade qualifies as passing.
-    
-    The course's passing information comes from courses_dict:
-      - credits is info["Credits"]
-      - The PassingGrade field (info["PassingGrade"]) is interpreted as:
-          • If it contains a comma, then the student must have a grade that exactly matches one
-            of the acceptable grades (each trimmed and uppercased).
-          • Otherwise, it is treated as a threshold: a grade is passing if its position in GRADE_ORDER
-            is less than or equal to that of the threshold.
-    """
     info = courses_dict[course]
     credits = info["Credits"]
-    passing_field = info["PassingGrade"].upper()
-    if "," in passing_field:
-        accepted = [t.strip().upper() for t in passing_field.split(",")]
-        def grade_is_passing(g): 
-            return g.upper() in accepted
-    else:
-        threshold = passing_field
-        def grade_is_passing(g):
-            return is_passing_grade(g.upper(), threshold)
+    threshold = info["PassingGrade"].upper()
     if pd.isna(grade):
-        return "NR"
-    elif grade == "":
-        return f"CR | {credits}"
+        return 'NR'
+    elif grade == '':
+        return f'CR | {credits}'
     else:
-        grades = grade.split(", ")
+        grades = grade.split(', ')
         grades_cleaned = [g.strip() for g in grades if g.strip()]
-        all_grades = ", ".join(grades_cleaned)
-        passing = any(grade_is_passing(g) for g in grades_cleaned)
+        all_grades = ', '.join(grades_cleaned)
+        passing = any(is_passing_grade(g, threshold) for g in grades_cleaned)
         if passing:
-            return f"{all_grades} | {credits}"
+            # Display all the grades
+            return f'{all_grades} | {credits}'
         else:
-            return f"{all_grades} | 0"
+            return f'{all_grades} | 0'
 
 def calculate_credits(row, courses_dict):
-    """
-    Calculates the credits for a single student (row) by summing the credit values for each course,
-    distributed into:
-      - Completed Credits (if the grade evaluation returns a credit value > 0)
-      - Registered Credits (if the cell starts with "CR")
-      - Remaining Credits (if the cell is "NR" or the grade evaluation returns 0)
-    """
     completed, registered, remaining = 0, 0, 0
     total_credits = 0
     for course, info in courses_dict.items():
@@ -182,21 +168,17 @@ def calculate_credits(row, courses_dict):
         value = row.get(course, '')
         if isinstance(value, str):
             value_upper = value.upper()
-            if value_upper.startswith("CR"):
+            if value_upper.startswith('CR'):
                 registered += credit
-            elif value_upper.startswith("NR"):
+            elif value_upper.startswith('NR'):
                 remaining += credit
             else:
-                parts = value.split("|")
-                if len(parts) == 2:
-                    try:
-                        course_credit = float(parts[1].strip())
-                    except Exception:
-                        course_credit = 0
-                    if course_credit > 0:
-                        completed += credit
-                    else:
-                        remaining += credit
+                parts = value.split('|')
+                grades_part = parts[0].strip()
+                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+                passing = any(is_passing_grade(g, info["PassingGrade"].upper()) for g in grades_list)
+                if passing:
+                    completed += credit
                 else:
                     remaining += credit
         else:
@@ -214,7 +196,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     workbook = Workbook()
     ws_required = workbook.active
     ws_required.title = "Required Courses"
-    # Predefine fills
+    # Predefine fills for CR and fallback
     light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
     pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
@@ -224,9 +206,18 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
             else:
-                # Use cell_color which now checks the credit value
-                cell.fill = PatternFill(fill_type="solid", start_color=("FFFACD" if str(value).upper().startswith("CR") 
-                             else ("90EE90" if "lightgreen" in cell_color(str(value)) else "FFC0CB")))
+                if value == 'c':
+                    cell.fill = light_green_fill
+                elif value == '':
+                    cell.fill = pink_fill
+                else:
+                    style_str = cell_color(str(value))
+                    if "lightgreen" in style_str:
+                        cell.fill = light_green_fill
+                    elif "#FFFACD" in style_str:
+                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                    else:
+                        cell.fill = pink_fill
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
@@ -235,8 +226,18 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
             else:
-                cell.fill = PatternFill(fill_type="solid", start_color=("FFFACD" if str(value).upper().startswith("CR") 
-                             else ("90EE90" if "lightgreen" in cell_color(str(value)) else "FFC0CB")))
+                if value == 'c':
+                    cell.fill = light_green_fill
+                elif value == '':
+                    cell.fill = pink_fill
+                else:
+                    style_str = cell_color(str(value))
+                    if "lightgreen" in style_str:
+                        cell.fill = light_green_fill
+                    elif "#FFFACD" in style_str:
+                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                    else:
+                        cell.fill = pink_fill
     workbook.save(output)
     output.seek(0)
     return output

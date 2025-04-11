@@ -8,17 +8,17 @@ st.title("Customize Courses")
 st.markdown("---")
 
 st.write(
-    "Upload a custom CSV to define courses configuration. The CSV should contain the following columns: "
+    "Upload a custom CSV file to define the courses configuration. The CSV must include the following columns: "
     "'Course', 'Credits', 'Type' (Required or Intensive), and 'PassingGrade'. "
-    "The 'PassingGrade' column defines the minimum grade (or acceptable grades) that counts as passing for that course. "
-    "For example, if 'PassingGrade' is set to 'C', then only grades of C or higher qualify."
+    "The 'PassingGrade' column defines the minimum grade that counts as passing for that course. "
+    "For example, if 'PassingGrade' is set to 'B', then only grades at least as high as B count as passing."
 )
 
 with st.expander("Course Configuration Options", expanded=True):
     uploaded_courses = st.file_uploader(
         "Upload Courses Configuration (CSV)",
         type="csv",
-        help="Use the template below."
+        help="Use the template provided below."
     )
     col1, col2 = st.columns(2)
     with col1:
@@ -27,7 +27,7 @@ with st.expander("Course Configuration Options", expanded=True):
                 'Course': ['ENGL201', 'CHEM201', 'ARAB201', 'MATH101'],
                 'Credits': [3, 3, 3, 3],
                 'Type': ['Required', 'Required', 'Required', 'Required'],
-                'PassingGrade': ['D-', 'D-', 'A+', 'D-']
+                'PassingGrade': ['B', 'B', 'A+', 'B']
             })
             csv_data = template_df.to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -37,7 +37,7 @@ with st.expander("Course Configuration Options", expanded=True):
                 mime='text/csv'
             )
     with col2:
-        if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
+        if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive."):
             try:
                 creds = authenticate_google_drive()
                 service = build('drive', 'v3', credentials=creds)
@@ -50,12 +50,12 @@ with st.expander("Course Configuration Options", expanded=True):
             except Exception as e:
                 st.error(f"Error reloading courses configuration: {e}")
 
-    # Load courses configuration either from the uploaded file or from a local copy (downloaded from Google Drive)
+    # Load the courses configuration.
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
         except Exception as e:
-            st.error(f"Error reading the uploaded file: {e}")
+            st.error(f"Error reading uploaded file: {e}")
             courses_df = None
     elif os.path.exists("courses_config.csv"):
         courses_df = pd.read_csv("courses_config.csv")
@@ -66,7 +66,7 @@ with st.expander("Course Configuration Options", expanded=True):
         required_cols = {'Course', 'Credits', 'Type', 'PassingGrade'}
         if required_cols.issubset(courses_df.columns):
             courses_df['Course'] = courses_df['Course'].str.upper().str.strip()
-            # Separate required (target) and intensive courses:
+            # Separate courses based on 'Type'
             required_df = courses_df[courses_df['Type'].str.lower() == 'required']
             intensive_df = courses_df[courses_df['Type'].str.lower() == 'intensive']
             target_courses = {}
@@ -85,18 +85,18 @@ with st.expander("Course Configuration Options", expanded=True):
             st.session_state['intensive_courses'] = intensive_courses
             st.success("Courses configuration loaded successfully.")
         else:
-            st.error("CSV must contain the columns: 'Course', 'Credits', 'Type', and 'PassingGrade'.")
+            st.error("CSV must include: 'Course', 'Credits', 'Type', and 'PassingGrade'.")
     else:
         st.info("No courses configuration available. Please upload a CSV or reload from Google Drive.")
 
+# Assignment Types Configuration section.
 with st.expander("Assignment Types Configuration", expanded=True):
-    st.write(
-        "Edit the list of assignment types that can be assigned to courses. "
-        "For example, enter S.C.E, F.E.C, ARAB201 to allow assignments for those courses."
-    )
+    st.write("Edit the list of assignment types that may be assigned to courses (for example, S.C.E, F.E.C, ARAB201).")
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
     assignment_types_str = st.text_input("Enter assignment types (comma separated)", value=", ".join(default_types))
     if st.button("Save Assignment Types"):
         new_types = [x.strip() for x in assignment_types_str.split(",") if x.strip()]
         st.session_state["allowed_assignment_types"] = new_types
         st.success("Assignment types updated.")
+        
+st.success("Courses are now set. Proceed to 'View Reports' to see the processed data.")
