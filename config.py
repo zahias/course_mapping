@@ -38,11 +38,17 @@ def cell_color(value: str) -> str:
     """
     Returns a CSS style string for the background color of a cell based on its value.
     
+    The function expects the cell value to be formatted as:
+         "grade1, grade2, ... | credit"
+    For example: "B, C | 3" or "C, D | 0".
+    
     Rules:
-      - If the value starts with "CR", returns light yellow (#FFFACD) to indicate a "Currently Registered" cell.
-      - Otherwise, the value is split at the pipe character ("|") to extract the portion with grade information.
-        If any token in that part is present in GRADE_ORDER (i.e. it is a valid grade), returns light green.
-      - If no valid grade is found, returns pink.
+      - If the value starts with "CR", returns a light yellow background (#FFFACD) to indicate a currently registered course.
+      - Otherwise, if the cell splits into two parts using the pipe ("|"):
+            * The second part is interpreted as the earned credit.
+            * If the credit equals 0 (i.e. failing), the background will be red.
+            * If the credit is greater than 0 (i.e. passing), the background will be light green.
+      - In all other cases, it returns pink.
     """
     if not isinstance(value, str):
         return ''
@@ -50,9 +56,5 @@ def cell_color(value: str) -> str:
     if value_upper.startswith('CR'):
         return 'background-color: #FFFACD'
     parts = value.split('|')
-    if parts:
-        grades_part = parts[0]
-        grades_list = [g.strip().upper() for g in grades_part.split(',') if g.strip()]
-        if any(g in GRADE_ORDER for g in grades_list):
-            return 'background-color: lightgreen'
-    return 'background-color: pink'
+    if len(parts) == 2:
+        credit_str = parts[_
