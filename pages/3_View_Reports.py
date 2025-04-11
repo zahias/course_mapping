@@ -14,39 +14,39 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from config import get_allowed_assignment_types, GRADE_ORDER, cell_color_obj
+from config import get_allowed_assignment_types, GRADE_ORDER, cell_color, CourseResult
 
 st.title("View Reports")
 st.markdown("---")
 
-if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
+if st.button("Reload Equivalent Courses", help="Reload equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
-        file_id = search_file(service, "equivalent_courses.csv")
-        if file_id:
-            download_file(service, file_id, "equivalent_courses.csv")
-            st.success("Equivalent courses reloaded successfully.")
+        fid = search_file(service, "equivalent_courses.csv")
+        if fid:
+            download_file(service, fid, "equivalent_courses.csv")
+            st.success("Equivalent courses reloaded.")
         else:
-            st.error("Equivalent courses file not found on Google Drive.")
+            st.error("Equivalent courses file not found.")
     except Exception as e:
-        st.error(f"Error reloading equivalent courses: {e}")
+        st.error(f"Error: {e}")
 
 if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
-        file_id = search_file(service, "courses_config.csv")
-        if file_id:
-            download_file(service, file_id, "courses_config.csv")
-            st.success("Courses configuration reloaded successfully.")
+        fid = search_file(service, "courses_config.csv")
+        if fid:
+            download_file(service, fid, "courses_config.csv")
+            st.success("Courses configuration reloaded.")
         else:
-            st.error("Courses configuration file not found on Google Drive.")
+            st.error("Courses configuration file not found.")
     except Exception as e:
-        st.error(f"Error reloading courses configuration: {e}")
+        st.error(f"Error: {e}")
 
 if 'raw_df' not in st.session_state:
-    st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
+    st.warning("No data available. Please upload data in 'Upload Data' and configure courses in 'Customize Courses'.")
 else:
     df = st.session_state['raw_df']
     target_courses = st.session_state.get('target_courses')
@@ -59,103 +59,79 @@ else:
         if os.path.exists('equivalent_courses.csv'):
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
+
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
-            df,
-            target_courses,
-            intensive_courses,
-            per_student_assignments,
-            equivalent_courses_mapping
+            df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
         )
-        credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses), axis=1
-        )
+        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-        intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses), axis=1
-        )
+        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
-        # --- Toggle Options ---
-        grade_toggle = st.checkbox(
-            "Show All Grades",
-            value=False,
-            help="Display all recorded grade tokens if checked; otherwise, show only the primary grade."
-        )
-        completed_toggle = st.checkbox(
-            "Show Completed/Not Completed Only",
-            value=False,
-            help="Replace full course grade values with 'c' for passed courses; otherwise, show the full grade."
-        )
+        allowed_assignment_types = get_allowed_assignment_types()
 
-        def extract_display(cell):
-            """Extracts the display text from a cell dictionary using the current toggle."""
-            if isinstance(cell, dict):
-                disp = cell.get("display", "").strip()
-                tokens = [g.strip() for g in disp.split(" | ")[0].split(",") if g.strip()]
-                if grade_toggle:
-                    return ", ".join(tokens)
-                else:
-                    for grade in GRADE_ORDER:
-                        if grade in tokens:
-                            return grade
-                    return tokens[0] if tokens else ""
+        grade_toggle = st.checkbox("Show All Grades", value=False,
+            help="Display full grade tokens if checked; otherwise show only the primary grade.")
+        completed_toggle = st.checkbox("Show Completed/Not Completed Only", value=False,
+            help="Replace course grade values with 'c' for passed courses; otherwise, show full grade information.")
+
+        def extract_primary_grade(cell):
+            if not isinstance(cell, CourseResult):
+                return str(cell)
+            # When toggle is on, return full grade tokens (everything before the pipe)
+            if grade_toggle:
+                return cell.display.split("|")[0].strip()
             else:
-                return str(cell).strip()
+                tokens = [g.strip() for g in cell.display.split("|")[0].split(",") if g.strip()]
+                for grade in GRADE_ORDER:
+                    if grade in tokens:
+                        return grade
+                return tokens[0] if tokens else ""
 
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
-
         if completed_toggle:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda cell: "c" if (isinstance(cell, dict) and cell.get("passed") is True) else ""
-                )
+                displayed_df[course] = displayed_df[course].apply(lambda x: 'c' if isinstance(x, CourseResult) and x.passed else '')
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda cell: "c" if (isinstance(cell, dict) and cell.get("passed") is True) else ""
-                )
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: 'c' if isinstance(x, CourseResult) and x.passed else '')
         else:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(extract_display)
+                displayed_df[course] = displayed_df[course].apply(extract_primary_grade)
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(extract_display)
+                intensive_displayed_df[course] = intensive_displayed_df[course].apply(extract_primary_grade)
 
         def color_format(cell):
-            if isinstance(cell, dict):
-                return cell_color_obj(cell)
-            return 'background-color: pink'
-
+            if isinstance(cell, CourseResult):
+                return cell_color(cell)
+            return cell_color(str(cell))
         styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
         intensive_styled_df = intensive_displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(intensive_courses.keys())])
-        
         from ui_components import display_dataframes
         display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
-        
+
         st.markdown("**Color Legend:**")
         st.markdown("- Light Green: Passed courses")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Failed or not counted courses")
-        
-        # --- Assignment Section ---
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
-        if st.button("Reset All Assignments", help="Clears all saved assignments"):
+        if st.button("Reset All Assignments", help="Clear all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.experimental_rerun()
-        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
+        search_student = st.text_input("Search by Student ID or Name", help="Filter extra courses by student or course")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
-        allowed_assignment_types = get_allowed_assignment_types()
-        for assign_type in allowed_assignment_types:
-            extra_courses_df[assign_type] = False
+        for a in allowed_assignment_types:
+            extra_courses_df[a] = False
         for idx, row in extra_courses_df.iterrows():
             student_id = row['ID']
             course = row['Course']
             if student_id in per_student_assignments:
                 assignments = per_student_assignments[student_id]
-                for assign_type in allowed_assignment_types:
-                    if assignments.get(assign_type) == course:
-                        extra_courses_df.at[idx, assign_type] = True
+                for a in allowed_assignment_types:
+                    if assignments.get(a) == course:
+                        extra_courses_df.at[idx, a] = True
         if search_student:
             extra_courses_df = extra_courses_df[
                 extra_courses_df['ID'].str.contains(search_student, case=False, na=False) |
@@ -173,8 +149,7 @@ else:
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
                 st.experimental_rerun()
-        
-        # --- Summary Chart ---
+
         if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
             summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
             fig = px.bar(
@@ -185,11 +160,10 @@ else:
                 title="Completed vs. Remaining Credits per Student"
             )
             st.plotly_chart(fig, use_container_width=True)
-        
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
         st.session_state['output'] = output.getvalue()
-        from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
         st.download_button(
             label="Download Processed Report",
@@ -197,16 +171,14 @@ else:
             file_name="student_progress_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
-        # --- Manual Backup ---
         import shutil, datetime
         def backup_files():
-            timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_folder = f"backups/{timestamp_str}"
+            t_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_folder = f"backups/{t_str}"
             os.makedirs(backup_folder, exist_ok=True)
             for f in ["equivalent_courses.csv", "sce_fec_assignments.csv", "courses_config.csv", "app.log"]:
                 if os.path.exists(f):
                     shutil.copy(f, backup_folder)
-        if st.button("Perform Manual Backup", help="Create a timestamped backup of key files"):
+        if st.button("Perform Manual Backup", help="Backup key files with a timestamp"):
             backup_files()
             st.success("Backup completed.")
