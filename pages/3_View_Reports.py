@@ -66,48 +66,36 @@ else:
             per_student_assignments,
             equivalent_courses_mapping
         )
-        credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses), axis=1
-        )
+        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-        intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses), axis=1
-        )
+        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
         allowed_assignment_types = get_allowed_assignment_types()
-        grade_toggle = st.checkbox(
-            "Show All Grades",
-            value=False,
-            help="If checked, display all grades for each course."
-        )
-        completed_toggle = st.checkbox(
-            "Show Completed/Not Completed Only",
-            value=False,
-            help="If checked, shows 'c' if completed and '' if not instead of actual grades."
-        )
+        grade_toggle = st.checkbox("Show All Grades", value=False, help="Display all grades for each course.")
+        # Updated 'completed' toggle: only mark as 'c' if the cell contains a passing credit (>0)
+        completed_toggle = st.checkbox("Show Completed/Not Completed Only", value=False,
+                                       help="Displays 'c' only if the course is passed (credit > 0).")
         def extract_primary_grade(value):
-            if isinstance(value, str):
-                parts = value.split(' | ')
-                grades_part = parts[0]
-                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+            if isinstance(value, str) and "|" in value:
+                try:
+                    credit = float(value.split("|")[1].strip())
+                except Exception:
+                    credit = 0
                 if grade_toggle:
-                    return ', '.join(grades_list)
+                    return value.split("|")[0].strip()
                 else:
-                    for grade in GRADE_ORDER:
-                        if grade in grades_list:
-                            return grade
-                    return grades_list[0] if grades_list else ''
+                    return next((g.strip() for g in value.split(",") if g.strip() in GRADE_ORDER), "")
             return value
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
         if completed_toggle:
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
+                    lambda x: "c" if isinstance(x, str) and ("|" in x) and (float(x.split("|")[1].strip()) > 0) else ""
                 )
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: 'c' if isinstance(x, str) and any(g in GRADE_ORDER for g in x.split(' | ')[0].split(',') if g.strip()) else ''
+                    lambda x: "c" if isinstance(x, str) and ("|" in x) and (float(x.split("|")[1].strip()) > 0) else ""
                 )
         else:
             for course in target_courses:
@@ -121,16 +109,16 @@ else:
         from ui_components import display_dataframes
         display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
         st.markdown("**Color Legend:**")
-        st.markdown("- Light Green: Completed courses")
+        st.markdown("- Light Green: Passed courses (credit > 0)")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
-        st.markdown("- Pink: Not Completed/Not Counted courses")
+        st.markdown("- Pink: Not Passed/Not Counted courses")
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
-            st.rerun()
-        search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
+            st.experimental_rerun()
+        search_student = st.text_input("Search by Student ID or Name", help="Filter extra courses by student or course")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         for assign_type in allowed_assignment_types:
             extra_courses_df[assign_type] = False
@@ -158,7 +146,7 @@ else:
             if st.button("Save Assignments", help="Save the updated assignments to Google Drive"):
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
-                st.rerun()
+                st.experimental_rerun()
         if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
             summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
             fig = px.bar(
