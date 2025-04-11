@@ -128,52 +128,27 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict):
-    """
-    Processes a raw grade cell for a given course and returns a string of the form:
-        "{all_grades} | {credits}"
-    where credits will be 0 if no grade qualifies as passing.
-    
-    The course's passing information comes from courses_dict:
-      - credits is info["Credits"]
-      - The PassingGrade field (info["PassingGrade"]) is interpreted as:
-          • If it contains a comma, then the student must have a grade that exactly matches one
-            of the acceptable grades (each trimmed and uppercased).
-          • Otherwise, it is treated as a threshold: a grade is passing if its position in GRADE_ORDER
-            is less than or equal to that of the threshold.
-    """
     info = courses_dict[course]
     credits = info["Credits"]
-    passing_field = info["PassingGrade"].upper()
-    if "," in passing_field:
-        accepted = [t.strip().upper() for t in passing_field.split(",")]
-        def grade_is_passing(g): 
-            return g.upper() in accepted
-    else:
-        threshold = passing_field
-        def grade_is_passing(g):
-            return is_passing_grade(g.upper(), threshold)
+    # Get the passing grades list from the course configuration.
+    # Updated key from "PassingGrades" to "PassingGrade"
+    passing_str = info["PassingGrade"]
+    passing_list = [g.strip().upper() for g in passing_str.split(",")] if isinstance(passing_str, str) else []
     if pd.isna(grade):
-        return "NR"
-    elif grade == "":
-        return f"CR | {credits}"
+        return 'NR'
+    elif grade == '':
+        return f'CR | {credits}'
     else:
-        grades = grade.split(", ")
-        grades_cleaned = [g.strip() for g in grades if g.strip()]
-        all_grades = ", ".join(grades_cleaned)
-        passing = any(grade_is_passing(g) for g in grades_cleaned)
+        grades = grade.split(', ')
+        grades_cleaned = [g.strip().upper() for g in grades if g.strip()]
+        all_grades = ', '.join(grades_cleaned)
+        passing = any(g in passing_list for g in grades_cleaned)
         if passing:
-            return f"{all_grades} | {credits}"
+            return f'{all_grades} | {credits}'
         else:
-            return f"{all_grades} | 0"
+            return f'{all_grades} | 0'
 
 def calculate_credits(row, courses_dict):
-    """
-    Calculates the credits for a single student (row) by summing the credit values for each course,
-    distributed into:
-      - Completed Credits (if the grade evaluation returns a credit value > 0)
-      - Registered Credits (if the cell starts with "CR")
-      - Remaining Credits (if the cell is "NR" or the grade evaluation returns 0)
-    """
     completed, registered, remaining = 0, 0, 0
     total_credits = 0
     for course, info in courses_dict.items():
@@ -182,27 +157,27 @@ def calculate_credits(row, courses_dict):
         value = row.get(course, '')
         if isinstance(value, str):
             value_upper = value.upper()
-            if value_upper.startswith("CR"):
+            if value_upper.startswith('CR'):
                 registered += credit
-            elif value_upper.startswith("NR"):
+            elif value_upper.startswith('NR'):
                 remaining += credit
             else:
-                parts = value.split("|")
-                if len(parts) == 2:
-                    try:
-                        course_credit = float(parts[1].strip())
-                    except Exception:
-                        course_credit = 0
-                    if course_credit > 0:
-                        completed += credit
-                    else:
-                        remaining += credit
+                parts = value.split('|')
+                grades_part = parts[0].strip()
+                grades_list = [g.strip().upper() for g in grades_part.split(',') if g.strip()]
+                # Updated key here as well: "PassingGrade" instead of "PassingGrades"
+                passing_str = info["PassingGrade"]
+                passing_list = [g.strip().upper() for g in passing_str.split(",")] if isinstance(passing_str, str) else []
+                passing = any(g in passing_list for g in grades_list)
+                if passing:
+                    completed += credit
                 else:
                     remaining += credit
         else:
             remaining += credit
     return pd.Series([completed, registered, remaining, total_credits],
                      index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
+
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
     import io
