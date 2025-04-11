@@ -18,7 +18,7 @@ def read_progress_report(filepath):
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
-                    st.error("Wide format transformation failed. Please check the file structure.")
+                    st.error("Wide format transformation failed. Check the file structure.")
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
@@ -142,21 +142,22 @@ def process_progress_report(
 def determine_course_value(grade, course, courses_dict):
     info = courses_dict[course]
     credits = info["Credits"]
-    # Now, 'PassingGrades' is expected to be a list of acceptable passing grades (all in uppercase)
+    # Expecting info["PassingGrades"] to be a list of valid passing grades (all in uppercase)
     passing_grades = info["PassingGrades"]
     if pd.isna(grade):
-        return 'NR'
-    elif grade == '':
-        return f'CR | {credits}'
+        return "NR"
+    elif grade == "":
+        return f"CR | {credits}"
     else:
-        grades = grade.split(', ')
+        grades = grade.split(", ")
         grades_cleaned = [g.strip() for g in grades if g.strip()]
-        all_grades = ', '.join(grades_cleaned)
+        all_grades = ", ".join(grades_cleaned)
+        # If any grade is in the passing_grades list, the course is passed.
         passing = any(is_passing_grade(g, passing_grades) for g in grades_cleaned)
         if passing:
-            return f'{all_grades} | {credits}'
+            return f"{all_grades} | {credits}"
         else:
-            return f'{all_grades} | 0'
+            return f"{all_grades} | 0"
 
 def calculate_credits(row, courses_dict):
     completed, registered, remaining = 0, 0, 0
@@ -164,17 +165,17 @@ def calculate_credits(row, courses_dict):
     for course, info in courses_dict.items():
         credit = info["Credits"]
         total_credits += credit
-        value = row.get(course, '')
+        value = row.get(course, "")
         if isinstance(value, str):
             value_upper = value.upper()
-            if value_upper.startswith('CR'):
+            if value_upper.startswith("CR"):
                 registered += credit
-            elif value_upper.startswith('NR'):
+            elif value_upper.startswith("NR"):
                 remaining += credit
             else:
-                parts = value.split('|')
+                parts = value.split("|")
                 grades_part = parts[0].strip()
-                grades_list = [g.strip() for g in grades_part.split(',') if g.strip()]
+                grades_list = [g.strip() for g in grades_part.split(",") if g.strip()]
                 passing = any(is_passing_grade(g, info["PassingGrades"]) for g in grades_list)
                 if passing:
                     completed += credit
@@ -183,7 +184,7 @@ def calculate_credits(row, courses_dict):
         else:
             remaining += credit
     return pd.Series([completed, registered, remaining, total_credits],
-                     index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
+                     index=["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"])
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
     import io
@@ -195,25 +196,27 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     workbook = Workbook()
     ws_required = workbook.active
     ws_required.title = "Required Courses"
-    light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
-    pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
+    light_green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+    pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
             cell = ws_required.cell(row=r_idx, column=c_idx, value=value)
             if r_idx == 1:
                 cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
-                if value == 'c':
+                if value == "c":
                     cell.fill = light_green_fill
-                elif value == '':
+                elif value == "":
                     cell.fill = pink_fill
                 else:
                     style_str = cell_color(str(value))
                     if "lightgreen" in style_str:
                         cell.fill = light_green_fill
+                    elif "red" in style_str:
+                        cell.fill = PatternFill(start_color="red", end_color="red", fill_type="solid")
                     elif "#FFFACD" in style_str:
-                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
                     else:
                         cell.fill = pink_fill
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
@@ -222,18 +225,20 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
             cell = ws_intensive.cell(row=r_idx, column=c_idx, value=value)
             if r_idx == 1:
                 cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
-                if value == 'c':
+                if value == "c":
                     cell.fill = light_green_fill
-                elif value == '':
+                elif value == "":
                     cell.fill = pink_fill
                 else:
                     style_str = cell_color(str(value))
                     if "lightgreen" in style_str:
                         cell.fill = light_green_fill
+                    elif "red" in style_str:
+                        cell.fill = PatternFill(start_color="red", end_color="red", fill_type="solid")
                     elif "#FFFACD" in style_str:
-                        cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
+                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
                     else:
                         cell.fill = pink_fill
     workbook.save(output)

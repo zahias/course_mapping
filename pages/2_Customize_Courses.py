@@ -24,23 +24,23 @@ with st.expander("Course Configuration Options", expanded=True):
     with col1:
         if st.button("Download Template", help="Download CSV template for courses configuration."):
             template_df = pd.DataFrame({
-                'Course': ['ENGL201', 'CHEM201', 'ARAB201', 'MATH101'],
-                'Credits': [3, 3, 3, 3],
-                'Type': ['Required', 'Required', 'Required', 'Required'],
-                'PassingGrades': ['A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T']
+                "Course": ["ENGL201", "CHEM201", "ARAB201", "MATH101"],
+                "Credits": [3, 3, 3, 3],
+                "Type": ["Required", "Required", "Required", "Required"],
+                "PassingGrades": ["A+,A,A-", "A+,A,A-", "A+,A,A-", "A+,A,A-"]
             })
-            csv_data = template_df.to_csv(index=False).encode('utf-8')
+            csv_data = template_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="Download Courses Template",
                 data=csv_data,
-                file_name='courses_template.csv',
-                mime='text/csv'
+                file_name="courses_template.csv",
+                mime="text/csv"
             )
     with col2:
         if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
             try:
                 creds = authenticate_google_drive()
-                service = build('drive', 'v3', credentials=creds)
+                service = build("drive", "v3", credentials=creds)
                 file_id = search_file(service, "courses_config.csv")
                 if file_id:
                     download_file(service, file_id, "courses_config.csv")
@@ -50,7 +50,7 @@ with st.expander("Course Configuration Options", expanded=True):
             except Exception as e:
                 st.error(f"Error reloading courses configuration: {e}")
 
-    # Load courses configuration from the uploaded file or local copy (downloaded from Google Drive)
+    # Load courses configuration from the uploaded file or a local copy downloaded from Google Drive
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
@@ -63,29 +63,28 @@ with st.expander("Course Configuration Options", expanded=True):
         courses_df = None
 
     if courses_df is not None:
-        required_cols = {'Course', 'Credits', 'Type', 'PassingGrades'}
+        required_cols = {"Course", "Credits", "Type", "PassingGrades"}
         if required_cols.issubset(courses_df.columns):
-            courses_df['Course'] = courses_df['Course'].str.upper().str.strip()
-            # Separate required (target) and intensive courses:
-            required_df = courses_df[courses_df['Type'].str.lower() == 'required']
-            intensive_df = courses_df[courses_df['Type'].str.lower() == 'intensive']
+            courses_df["Course"] = courses_df["Course"].str.upper().str.strip()
+            # Separate required and intensive courses
+            required_df = courses_df[courses_df["Type"].str.lower() == "required"]
+            intensive_df = courses_df[courses_df["Type"].str.lower() == "intensive"]
             target_courses = {}
             for _, row in required_df.iterrows():
-                # Create a list of passing grades from the comma-separated values
-                passing_grades = [g.strip().upper() for g in str(row['PassingGrades']).split(',') if g.strip()]
-                target_courses[row['Course']] = {
-                    "Credits": row['Credits'],
+                passing_grades = [g.strip().upper() for g in str(row["PassingGrades"]).split(",") if g.strip()]
+                target_courses[row["Course"]] = {
+                    "Credits": row["Credits"],
                     "PassingGrades": passing_grades
                 }
             intensive_courses = {}
             for _, row in intensive_df.iterrows():
-                passing_grades = [g.strip().upper() for g in str(row['PassingGrades']).split(',') if g.strip()]
-                intensive_courses[row['Course']] = {
-                    "Credits": row['Credits'],
+                passing_grades = [g.strip().upper() for g in str(row["PassingGrades"]).split(",") if g.strip()]
+                intensive_courses[row["Course"]] = {
+                    "Credits": row["Credits"],
                     "PassingGrades": passing_grades
                 }
-            st.session_state['target_courses'] = target_courses
-            st.session_state['intensive_courses'] = intensive_courses
+            st.session_state["target_courses"] = target_courses
+            st.session_state["intensive_courses"] = intensive_courses
             st.success("Courses configuration loaded successfully.")
         else:
             st.error("CSV must contain the columns: 'Course', 'Credits', 'Type', and 'PassingGrades'.")
