@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from config import get_allowed_assignment_types, GRADE_ORDER, cell_color, simplify_for_toggle
+from config import get_allowed_assignment_types, GRADE_ORDER, extract_primary_grade_from_full_value, cell_color
 
 st.title("View Reports")
 st.markdown("---")
@@ -46,7 +46,7 @@ if st.button("Reload Courses Configuration", help="Reload courses configuration 
         st.error(f"Error reloading courses configuration: {e}")
 
 if 'raw_df' not in st.session_state:
-    st.warning("No data available. Please upload data in the 'Upload Data' page and set courses in 'Customize Courses'.")
+    st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
 else:
     df = st.session_state['raw_df']
     target_courses = st.session_state.get('target_courses')
@@ -56,128 +56,121 @@ else:
     else:
         per_student_assignments = load_assignments()
         eq_df = None
-        if os.path.exists('equivalent_courses.csv'):
-            eq_df = pd.read_csv('equivalent_courses.csv')
+        if os.path.exists("equivalent_courses.csv"):
+            eq_df = pd.read_csv("equivalent_courses.csv")
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
-        required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
+        
+        # Process the report to get the full (detailed) view
+        full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
             intensive_courses,
             per_student_assignments,
             equivalent_courses_mapping
         )
-        credits_df = required_courses_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
-        required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-        intensive_credits_df = intensive_courses_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
-        intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
-        allowed_assignment_types = get_allowed_assignment_types()
-        grade_toggle = st.checkbox(
-            "Show All Grades",
-            value=False,
-            help="If checked, display all detailed grades for each course."
-        )
-        completed_toggle = st.checkbox(
-            "Show Completed/Not Completed Only",
-            value=False,
-            help="If checked, courses that are passed (i.e. would be 'c' in toggle view) are marked simply with 'c'; others are blank."
-        )
-        def extract_primary_grade(value):
-            # Instead of the previous logic, use the new simplify_for_toggle:
-            if isinstance(value, str):
-                if not grade_toggle:
-                    # In simplified view, call simplify_for_toggle:
-                    simple = simplify_for_toggle(value)
-                    return simple
-                else:
-                    # Otherwise, show the full original grade tokens (the left part)
-                    parts = value.split('|')
-                    if parts:
-                        return parts[0].strip()
-                    else:
-                        return value
-            return value
-        displayed_df = required_courses_df.copy()
-        intensive_displayed_df = intensive_courses_df.copy()
-        if completed_toggle:
-            # Replace each cell's value with "c" if passed, else ""
-            for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(lambda x: "c" if simplify_for_toggle(x) == "c" else "")
-            for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: "c" if simplify_for_toggle(x) == "c" else "")
+        
+        # Precompute the "primary grade" version by converting each cell using extract_primary_grade_from_full_value.
+        primary_req_df = full_req_df.copy()
+        for course in target_courses:
+            primary_req_df[course] = primary_req_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
+        primary_int_df = intensive_req_df.copy()
+        for course in intensive_courses:
+            primary_int_df[course] = primary_int_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
+        
+        # Toggle: If "Show All Grades" is checked, display full details; otherwise, display primary grade.
+        show_all_toggle = st.checkbox("Show All Grades", value=True, help="Toggle to display all recorded grade tokens vs. only the primary grade.")
+        if show_all_toggle:
+            displayed_req_df = full_req_df.copy()
+            displayed_int_df = intensive_req_df.copy()
         else:
-            for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(lambda x: extract_primary_grade(x))
-            for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(lambda x: extract_primary_grade(x))
-        def color_format(val):
-            return cell_color(str(val))
-        styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
-        intensive_styled_df = intensive_displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(intensive_courses.keys())])
+            displayed_req_df = primary_req_df.copy()
+            displayed_int_df = primary_int_df.copy()
+        
+        # Calculate credits (always based on full_req_df)
+        credits_df = full_req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
+        full_req_df = pd.concat([full_req_df, credits_df], axis=1)
+        intensive_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
+        intensive_req_df = pd.concat([intensive_req_df, intensive_credits_df], axis=1)
+        
+        allowed_assignment_types = get_allowed_assignment_types()
+        
         from ui_components import display_dataframes
-        display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
+        display_dataframes(
+            displayed_req_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_courses.keys())]),
+            displayed_int_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
+            extra_courses_df,
+            df
+        )
+        
         st.markdown("**Color Legend:**")
-        st.markdown("- Green: Passed course (displayed as 'c' in completed view)")
-        st.markdown("- Red: Failed course")
-        st.markdown("- Light Yellow: Currently Registered (CR)")
+        st.markdown("- Light Green: Passed courses")
+        st.markdown("- Light Yellow: Currently Registered (CR) courses")
+        st.markdown("- Pink: Not Completed/Failing courses")
+        
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
+        
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.rerun()
+        
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
-        extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
-        for assign_type in allowed_assignment_types:
-            extra_courses_df[assign_type] = False
+        extra_courses_df["ID"] = extra_courses_df["ID"].astype(str)
+        for atype in allowed_assignment_types:
+            extra_courses_df[atype] = False
         for idx, row in extra_courses_df.iterrows():
-            student_id = row['ID']
-            course = row['Course']
-            if student_id in per_student_assignments:
-                assignments = per_student_assignments[student_id]
-                for assign_type in allowed_assignment_types:
-                    if assignments.get(assign_type) == course:
-                        extra_courses_df.at[idx, assign_type] = True
+            sid = row["ID"]
+            course = row["Course"]
+            if sid in per_student_assignments:
+                assigns = per_student_assignments[sid]
+                for atype in allowed_assignment_types:
+                    if assigns.get(atype) == course:
+                        extra_courses_df.at[idx, atype] = True
         if search_student:
             extra_courses_df = extra_courses_df[
-                extra_courses_df['ID'].str.contains(search_student, case=False, na=False) |
-                extra_courses_df['NAME'].str.contains(search_student, case=False, na=False)
+                extra_courses_df["ID"].str.contains(search_student, case=False, na=False) |
+                extra_courses_df["NAME"].str.contains(search_student, case=False, na=False)
             ]
         from ui_components import add_assignment_selection
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-        errors, updated_per_student_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
+        errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
         if errors:
             st.error("Please resolve the following issues before saving assignments:")
             for error in errors:
                 st.write(f"- {error}")
         else:
             if st.button("Save Assignments", help="Save the updated assignments to Google Drive"):
-                save_assignments(updated_per_student_assignments)
+                save_assignments(updated_assignments)
                 st.success("Assignments saved.")
                 st.rerun()
-        if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
-            summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
+        
+        if "# of Credits Completed" in full_req_df.columns and "# Remaining" in full_req_df.columns:
+            summary_df = full_req_df[["ID", "NAME", "# of Credits Completed", "# Remaining"]].copy()
             fig = px.bar(
                 summary_df,
-                x='NAME',
-                y=['# of Credits Completed', '# Remaining'],
-                barmode='group',
+                x="NAME",
+                y=["# of Credits Completed", "# Remaining"],
+                barmode="group",
                 title="Completed vs. Remaining Credits per Student"
             )
             st.plotly_chart(fig, use_container_width=True)
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
-        st.session_state['output'] = output.getvalue()
+        output = save_report_with_formatting(displayed_req_df, displayed_int_df, timestamp)
+        st.session_state["output"] = output.getvalue()
         log_action(f"Report generated at {timestamp}")
         st.download_button(
             label="Download Processed Report",
-            data=st.session_state['output'],
+            data=st.session_state["output"],
             file_name="student_progress_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+        
         import shutil, datetime
         def backup_files():
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_folder = f"backups/{timestamp}"
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_folder = f"backups/{ts}"
             os.makedirs(backup_folder, exist_ok=True)
             for f in ["equivalent_courses.csv", "sce_fec_assignments.csv", "courses_config.csv", "app.log"]:
                 if os.path.exists(f):
