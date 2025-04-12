@@ -5,9 +5,7 @@ GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-
 
 def get_allowed_assignment_types():
     """
-    Returns the list of assignment types that can be used.
-    If the user has set a custom list via session state, that list is returned.
-    Otherwise, it defaults to ["S.C.E", "F.E.C"].
+    Returns the list of assignment types (editable via session state).
     """
     if "allowed_assignment_types" in st.session_state:
         return st.session_state["allowed_assignment_types"]
@@ -15,7 +13,7 @@ def get_allowed_assignment_types():
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks if the given grade is in the list of allowed passing grades (comma‑separated).
+    Checks if the grade is one of the acceptable passing grades.
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
@@ -28,13 +26,17 @@ is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Legacy cell_color function (not used in our new approach).
+    This is the default cell color function for full-detail grade display.
+    It parses the processed grade string (e.g. "B, A | 3") and returns a color.
+    (Not used when the simplified 'completed' toggle is on.)
     """
     if not isinstance(value, str):
         return ''
+    
     value = value.strip()
     if value.upper().startswith("CR"):
         return 'background-color: #FFFACD'
+    
     parts = value.split("|")
     if len(parts) >= 2:
         marker = parts[1].strip()
@@ -49,47 +51,22 @@ def cell_color(value: str) -> str:
                 return 'background-color: lightgreen'
             elif marker.upper() == "FAIL":
                 return 'background-color: pink'
+    # Fallback: if something is recognized in the grade tokens, return lightgreen
     tokens = [g.strip().upper() for g in parts[0].split(",") if g.strip()]
     if any(g in GRADE_ORDER for g in tokens):
         return 'background-color: lightgreen'
     return 'background-color: pink'
 
-def cell_color_for_course(value: str, course_code: str, courses_config: dict) -> str:
+def simple_cell_color(value: str) -> str:
     """
-    New cell color function that re-computes pass/fail by using the allowed passing grades 
-    from the course configuration.
-    
-    Parameters:
-      - value: The processed cell value string, e.g. "B, A | 3" or "D, F | 0" or "P | PASS".
-      - course_code: The course identifier (which is the column name in the pivot table).
-      - courses_config: Dictionary of course configuration for that category (target_courses or intensive_courses).
-      
-    Logic:
-      - If value begins with "CR", return light yellow.
-      - Otherwise, split the value by "|" to extract the grade tokens.
-      - Retrieve the allowed passing grades (a comma-separated string) from courses_config for the course.
-      - Split that string into a list.
-      - If at least one token (after uppercasing) is found in the allowed passing list, return light green.
-      - Otherwise, return pink.
+    In the simplified mode (when the Completed/Not Completed toggle is on),
+    each cell is processed to either be "c" (indicating passed) or blank.
+    This function returns light green if the value is "c", and red otherwise.
     """
     if not isinstance(value, str):
         return ''
-    val = value.strip()
-    if val.upper().startswith("CR"):
-        return 'background-color: #FFFACD'
-    parts = val.split("|")
-    if len(parts) < 2:
-        # Fallback to legacy approach if format unexpected.
-        tokens = [g.strip().upper() for g in val.split(",") if g.strip()]
-        if any(token in GRADE_ORDER for token in tokens):
-            return 'background-color: lightgreen'
-        return 'background-color: pink'
-    grade_tokens = parts[0].strip()
-    tokens = [t.strip().upper() for t in grade_tokens.split(",") if t.strip()]
-    # Retrieve allowed passing grades for this course.
-    allowed_str = courses_config.get(course_code, {}).get("PassingGrades", "")
-    allowed_grades = [x.strip().upper() for x in allowed_str.split(",") if x.strip()]
-    if any(token in allowed_grades for token in tokens):
-        return 'background-color: lightgreen'
+    value = value.strip()
+    if value == "c":
+        return "background-color: lightgreen"
     else:
-        return 'background-color: pink'
+        return "background-color: red"
