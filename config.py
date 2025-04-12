@@ -5,7 +5,9 @@ GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-
 
 def get_allowed_assignment_types():
     """
-    Returns the list of assignment types (editable via session state).
+    Returns the list of assignment types.
+    If the user has set custom values in session state, that list is returned.
+    Otherwise, defaults to ["S.C.E", "F.E.C"].
     """
     if "allowed_assignment_types" in st.session_state:
         return st.session_state["allowed_assignment_types"]
@@ -13,7 +15,7 @@ def get_allowed_assignment_types():
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks if the grade is one of the acceptable passing grades.
+    Checks if the given grade is one of the passing grades specified (as a comma-separated list).
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
@@ -21,52 +23,48 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility:
+# For backward compatibility
 is_passing_grade = is_passing_grade_from_list
+
+def simplify_for_toggle(value: str) -> str:
+    """
+    Given a processed cell value in the format "<grade tokens> | <credit or marker>",
+    returns "c" if the course is passed (that is, if the credit value is > 0 or the marker is "PASS"),
+    otherwise returns an empty string.
+    """
+    if not isinstance(value, str) or '|' not in value:
+        return ""
+    parts = value.split('|')
+    if len(parts) < 2:
+        return ""
+    credit_str = parts[1].strip()
+    if credit_str.isdigit():
+        if int(credit_str) > 0:
+            return "c"
+        else:
+            return ""
+    else:
+        if credit_str.upper() == "PASS":
+            return "c"
+        else:
+            return ""
 
 def cell_color(value: str) -> str:
     """
-    This is the default cell color function for full-detail grade display.
-    It parses the processed grade string (e.g. "B, A | 3") and returns a color.
-    (Not used when the simplified 'completed' toggle is on.)
+    Returns a CSS style string for the background color of a cell.
+    
+    - If the value starts with "CR", it is considered currently registered and is colored light yellow.
+    - Otherwise, we use the simplified toggle logic:
+         If simplify_for_toggle() returns "c" (course passed), we color the cell green.
+         If it returns an empty string (course not passed), we color it red.
     """
     if not isinstance(value, str):
         return ''
-    
     value = value.strip()
-    if value.upper().startswith("CR"):
+    if value.upper().startswith('CR'):
         return 'background-color: #FFFACD'
-    
-    parts = value.split("|")
-    if len(parts) >= 2:
-        marker = parts[1].strip()
-        try:
-            numeric = int(marker)
-            if numeric > 0:
-                return 'background-color: lightgreen'
-            else:
-                return 'background-color: pink'
-        except ValueError:
-            if marker.upper() == "PASS":
-                return 'background-color: lightgreen'
-            elif marker.upper() == "FAIL":
-                return 'background-color: pink'
-    # Fallback: if something is recognized in the grade tokens, return lightgreen
-    tokens = [g.strip().upper() for g in parts[0].split(",") if g.strip()]
-    if any(g in GRADE_ORDER for g in tokens):
+    toggle_val = simplify_for_toggle(value)
+    if toggle_val == "c":
         return 'background-color: lightgreen'
-    return 'background-color: pink'
-
-def simple_cell_color(value: str) -> str:
-    """
-    In the simplified mode (when the Completed/Not Completed toggle is on),
-    each cell is processed to either be "c" (indicating passed) or blank.
-    This function returns light green if the value is "c", and red otherwise.
-    """
-    if not isinstance(value, str):
-        return ''
-    value = value.strip()
-    if value == "c":
-        return "background-color: lightgreen"
     else:
-        return "background-color: red"
+        return 'background-color: red'
