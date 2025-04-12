@@ -23,12 +23,12 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility:
+# For backward compatibility.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Legacy cell_color function (not used in our new approach).
+    Legacy cell_color function (not used in the new approach).
     """
     if not isinstance(value, str):
         return ''
@@ -56,21 +56,19 @@ def cell_color(value: str) -> str:
 
 def cell_color_for_course(value: str, course_code: str, courses_config: dict) -> str:
     """
-    New cell color function that re-computes pass/fail by using the allowed passing grades 
-    from the course configuration.
-    
+    Revised cell color function that recomputes the pass/fail status using the best grade.
+
     Parameters:
-      - value: The processed cell value string, e.g. "B, A | 3" or "D, F | 0" or "P | PASS".
-      - course_code: The course identifier (which is the column name in the pivot table).
-      - courses_config: Dictionary of course configuration for that category (target_courses or intensive_courses).
-      
+      - value: Processed cell string in the form "grade tokens | marker".
+      - course_code: The course identifier (column name).
+      - courses_config: The course configuration dictionary for this category (target_courses or intensive_courses).
+
     Logic:
-      - If value begins with "CR", return light yellow.
-      - Otherwise, split the value by "|" to extract the grade tokens.
-      - Retrieve the allowed passing grades (a comma-separated string) from courses_config for the course.
-      - Split that string into a list.
-      - If at least one token (after uppercasing) is found in the allowed passing list, return light green.
-      - Otherwise, return pink.
+      - If value starts with "CR", return light yellow.
+      - Otherwise, split value by the pipe character ("|") and extract the grade tokens (left part).
+      - From the list of tokens (uppercased), compute the best grade based on GRADE_ORDER.
+      - Look up the allowed passing grades for this course (from courses_config).
+      - If the best grade is in the allowed passing list, return light green; otherwise, return pink.
     """
     if not isinstance(value, str):
         return ''
@@ -79,17 +77,28 @@ def cell_color_for_course(value: str, course_code: str, courses_config: dict) ->
         return 'background-color: #FFFACD'
     parts = val.split("|")
     if len(parts) < 2:
-        # Fallback to legacy approach if format unexpected.
-        tokens = [g.strip().upper() for g in val.split(",") if g.strip()]
-        if any(token in GRADE_ORDER for token in tokens):
-            return 'background-color: lightgreen'
         return 'background-color: pink'
-    grade_tokens = parts[0].strip()
+    grade_tokens = parts[0].strip()  # e.g., "D, F"
     tokens = [t.strip().upper() for t in grade_tokens.split(",") if t.strip()]
-    # Retrieve allowed passing grades for this course.
+    if not tokens:
+        return 'background-color: pink'
+    # Determine the best grade among tokens: lower index in GRADE_ORDER means better.
+    best_token = None
+    best_index = len(GRADE_ORDER) + 1
+    for token in tokens:
+        if token in GRADE_ORDER:
+            idx = GRADE_ORDER.index(token)
+        else:
+            # Unknown tokens are treated as worst.
+            idx = len(GRADE_ORDER)
+        if idx < best_index:
+            best_index = idx
+            best_token = token
+    # Retrieve allowed passing grades for the course from courses_config.
     allowed_str = courses_config.get(course_code, {}).get("PassingGrades", "")
     allowed_grades = [x.strip().upper() for x in allowed_str.split(",") if x.strip()]
-    if any(token in allowed_grades for token in tokens):
+    # Debug: You might want to log best_token and allowed_grades for troubleshooting.
+    if best_token and best_token in allowed_grades:
         return 'background-color: lightgreen'
     else:
         return 'background-color: pink'

@@ -19,7 +19,7 @@ from config import get_allowed_assignment_types, GRADE_ORDER, cell_color_for_cou
 st.title("View Reports")
 st.markdown("---")
 
-# Reload buttons for equivalent courses and courses configuration.
+# Reload equivalent courses.
 if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
@@ -33,6 +33,7 @@ if st.button("Reload Equivalent Courses", help="Download the latest equivalent c
     except Exception as e:
         st.error(f"Error reloading equivalent courses: {e}")
 
+# Reload courses configuration.
 if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
     try:
         creds = authenticate_google_drive()
@@ -57,13 +58,11 @@ else:
     else:
         per_student_assignments = load_assignments()
 
-        # Load equivalent courses mapping
         eq_df = None
         if os.path.exists('equivalent_courses.csv'):
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        # Process the student progress report.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
@@ -82,24 +81,19 @@ else:
         )
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
-        # Toggle to show all grade tokens vs. primary grade only.
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="When checked, display all recorded grade tokens for each course; otherwise, show only the primary grade."
+            help="Display all grade tokens for each course when checked; otherwise show only the primary grade."
         )
 
-        # Toggle for simplified display ("completed/not completed" view).
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="Replace detailed grade info with 'c' for passed courses and blank for failing ones."
+            help="Replace detailed grade information with 'c' for passed courses; otherwise show full information."
         )
 
         def extract_primary_grade(value):
-            """
-            Returns either the full grade tokens (if grade_toggle is True) or the primary grade based on GRADE_ORDER.
-            """
             if not isinstance(value, str):
                 return value
             parts = value.split(" | ")
@@ -115,7 +109,6 @@ else:
                         return grade
                 return grades_list[0] if grades_list else ""
 
-        # Prepare displayed dataframes.
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
 
@@ -136,11 +129,9 @@ else:
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(extract_primary_grade)
 
-        # Instead of using a simple applymap, we now iterate column-by-column to apply our new cell_color_for_course,
-        # which requires context (the course code and configuration).
+        # Apply column-specific styling using the new cell_color_for_course.
         required_styler = displayed_df.style
         for course in target_courses.keys():
-            # Apply column-specific styling for required courses.
             required_styler = required_styler.apply(
                 lambda s: s.apply(lambda x: cell_color_for_course(x, course, target_courses)),
                 subset=[course]
@@ -152,7 +143,6 @@ else:
                 subset=[course]
             )
 
-        # Display the processed report in separate tabs.
         from ui_components import display_dataframes
         display_dataframes(required_styler, intensive_styler, extra_courses_df, df)
 
@@ -161,13 +151,13 @@ else:
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Failed or not counted courses")
 
-        # Assignment section remains unchanged.
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.experimental_rerun()
+
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         allowed_assignment_types = get_allowed_assignment_types()
