@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from config import GRADE_ORDER, is_passing_grade_from_list, get_allowed_assignment_types
+from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
 
 def read_progress_report(filepath):
     try:
@@ -18,7 +18,7 @@ def read_progress_report(filepath):
                 df = pd.read_excel(xls)
                 df = transform_wide_format(df)
                 if df is None:
-                    st.error("Wide format transformation failed. Check the file structure.")
+                    st.error("Transformation of wide format failed. Check the file structure.")
                 return df
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
@@ -39,6 +39,7 @@ def transform_wide_format(df):
     if 'STUDENT ID' not in df.columns or not any(col.startswith('COURSE') for col in df.columns):
         st.error("File does not match expected wide format (missing 'STUDENT ID' or COURSE columns).")
         return None
+
     course_cols = [c for c in df.columns if c.startswith('COURSE')]
     id_vars = [c for c in df.columns if c not in course_cols]
     df_melted = df.melt(id_vars=id_vars, var_name='Course_Column', value_name='CourseData')
@@ -83,6 +84,7 @@ def process_progress_report(
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
+    
     if per_student_assignments:
         allowed_assignment_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -96,24 +98,28 @@ def process_progress_report(
                         return assign_type
             return mapped_course
         df['Mapped Course'] = df.apply(map_assignment, axis=1)
+        
     extra_courses_df = df[
         (~df['Mapped Course'].isin(target_courses.keys())) &
         (~df['Mapped Course'].isin(intensive_courses.keys()))
     ]
     target_df = df[df['Mapped Course'].isin(target_courses.keys())]
     intensive_df = df[df['Mapped Course'].isin(intensive_courses.keys())]
+    
     pivot_df = target_df.pivot_table(
         index=['ID', 'NAME'],
         columns='Mapped Course',
         values='Grade',
         aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))
     ).reset_index()
+    
     intensive_pivot_df = intensive_df.pivot_table(
         index=['ID', 'NAME'],
         columns='Mapped Course',
         values='Grade',
         aggfunc=lambda x: ', '.join(map(str, filter(pd.notna, x)))
     ).reset_index()
+    
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
@@ -126,8 +132,10 @@ def process_progress_report(
         intensive_pivot_df[course] = intensive_pivot_df[course].apply(
             lambda grade: determine_course_value(grade, course, intensive_courses)
         )
+        
     result_df = pivot_df[['ID', 'NAME'] + list(target_courses.keys())]
     intensive_result_df = intensive_pivot_df[['ID', 'NAME'] + list(intensive_courses.keys())]
+    
     if per_student_assignments:
         assigned_courses = []
         for student_id, assignments in per_student_assignments.items():
@@ -136,54 +144,57 @@ def process_progress_report(
         extra_courses_df = extra_courses_df[
             ~extra_courses_df.apply(lambda row: (str(row['ID']), row['Course']) in assigned_courses, axis=1)
         ]
+        
     extra_courses_list = sorted(extra_courses_df['Course'].unique())
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict):
     """
-    Processes the raw grade for a given course using its configuration from courses_dict.
-    Returns a string in the format:
+    Processes a grade for a given course.
     
-         "grade tokens | marker"
-    
-    For courses with nonzero credits:
-       - If any token is in the course’s PassingGrades, marker is the course's credit value.
-       - Otherwise, marker is "0".
-    For courses with 0 credits:
-       - If passed, marker is "PASS".
-       - If failed, marker is "FAIL".
+    - Retrieves the course info from courses_dict (which was built from the course configuration file).
+    - Splits the PassingGrades (a comma-separated string) into a list.
+    - If the student's grade is missing or empty:
+         - For an empty string (indicating currently registered), return "CR | X" where X is:
+             * The course’s credit if credit > 0,
+             * Otherwise, "PASS" (to mark 0‑credit courses as passed when appropriate).
+         - If missing (NaN), return "NR".
+    - Otherwise, split the student’s grade string into tokens.
+    - If any token (after cleaning and uppercasing) is contained in the allowed passing grades list:
+         - Return a string of the form "grade tokens | Y" where Y is the course’s credit if credit > 0,
+           or "PASS" if credit equals 0.
+    - If no token is acceptable, return the tokens with a marker of 0 (or "FAIL" for 0‑credit courses).
     """
     info = courses_dict[course]
     credits = info["Credits"]
-    # Parse the passing grades list from the configuration.
     passing_grades = [p.strip().upper() for p in info["PassingGrades"].split(',')]
     
-    # If the grade value is missing, return "NR | 0"
     if pd.isna(grade):
-        return "NR | 0"
-    # If empty, indicate current registration.
-    elif grade.strip() == "":
-        return f"CR | {credits}"
+        return 'NR'
+    elif grade == '':
+        return f'CR | {credits if credits > 0 else "PASS"}'
     else:
-        # Process grade tokens (supporting multiple comma-separated tokens)
-        tokens = [g.strip().upper() for g in grade.split(',') if g.strip()]
-        grade_tokens = ", ".join(tokens)
-        # Determine if any token meets the passing criteria.
-        passing = any(token in passing_grades for token in tokens)
-        if credits > 0:
-            return f"{grade_tokens} | {credits}" if passing else f"{grade_tokens} | 0"
+        grades = grade.split(', ')
+        grades_cleaned = [g.strip().upper() for g in grades if g.strip()]
+        all_grades = ', '.join(grades_cleaned)
+        passing = any(g in passing_grades for g in grades_cleaned)
+        if passing:
+            return f'{all_grades} | {credits if credits > 0 else "PASS"}'
         else:
-            # For 0-credit courses, use text markers instead of numeric
-            return f"{grade_tokens} | PASS" if passing else f"{grade_tokens} | FAIL"
+            return f'{all_grades} | {credits if credits > 0 else "FAIL"}'
 
 def calculate_credits(row, courses_dict):
     """
-    Calculates the credits summary for a student from the processed pivot row.
-    It sums:
-      - Completed Credits: courses where the marker is a positive number or "PASS"
-      - Registered Credits: courses starting with "CR"
-      - Remaining Credits: courses with marker "0" or "FAIL"
-      - Total Credits: sum of course credits.
+    Loops over each course present in courses_dict.
+    
+    - For each course, uses the processed cell value (from determine_course_value)
+      to decide:
+      * If the course is passed, add the course's credit to "completed".
+      * If "CR" appears, add to "registered".
+      * Otherwise, add to "remaining".
+      
+    For courses with numeric credits (i.e. credit > 0) the marker is a number;
+    for 0‑credit courses, the marker is "PASS" or "FAIL".
     """
     completed, registered, remaining = 0, 0, 0
     total_credits = 0
@@ -192,39 +203,35 @@ def calculate_credits(row, courses_dict):
         total_credits += credit
         value = row.get(course, '')
         if isinstance(value, str):
-            value = value.strip()
-            if value.upper().startswith('CR'):
+            value_upper = value.upper()
+            if value_upper.startswith('CR'):
                 registered += credit
-            elif value.upper().startswith('NR'):
+            elif value_upper.startswith('NR'):
                 remaining += credit
             else:
-                # Expect value to be of the form "grade tokens | marker"
-                parts = value.split("|")
-                if len(parts) == 2:
-                    marker = parts[1].strip()
-                    # If marker can be interpreted as an integer:
-                    try:
-                        numeric = int(marker)
-                        if numeric > 0:
-                            completed += credit
-                        else:
-                            remaining += credit
-                    except ValueError:
-                        # Otherwise, check text markers for 0-credit courses.
-                        if marker.upper() == "PASS":
-                            # Consider passed even if credit is 0.
-                            # (No addition to completed because 0 credit, but may be flagged)
-                            pass
-                        elif marker.upper() == "FAIL":
-                            remaining += credit
-                else:
-                    remaining += credit
+                parts = value.split('|')
+                marker = parts[1].strip() if len(parts) >= 2 else '0'
+                try:
+                    numeric = int(marker)
+                    if numeric > 0:
+                        completed += credit
+                    else:
+                        remaining += credit
+                except ValueError:
+                    if marker.upper() == "PASS":
+                        completed += credit
+                    else:
+                        remaining += credit
         else:
             remaining += credit
     return pd.Series([completed, registered, remaining, total_credits],
                      index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits'])
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
+    """
+    Exports the displayed dataframes to an Excel file while applying cell color formatting.
+    Color formatting is handled via the cell_color() function (from config.py).
+    """
     import io
     from openpyxl import Workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
@@ -236,6 +243,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     ws_required.title = "Required Courses"
     light_green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
     pink_fill = PatternFill(start_color='FFC0CB', end_color='FFC0CB', fill_type='solid')
+    
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
             cell = ws_required.cell(row=r_idx, column=c_idx, value=value)
@@ -255,6 +263,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                         cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
                     else:
                         cell.fill = pink_fill
+                        
     ws_intensive = workbook.create_sheet(title="Intensive Courses")
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
@@ -275,6 +284,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                         cell.fill = PatternFill(start_color='FFFACD', end_color='FFFACD', fill_type='solid')
                     else:
                         cell.fill = pink_fill
+                        
     workbook.save(output)
     output.seek(0)
     return output
