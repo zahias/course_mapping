@@ -14,13 +14,12 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from config import get_allowed_assignment_types, GRADE_ORDER, cell_color
+from config import get_allowed_assignment_types, GRADE_ORDER, cell_color_for_course
 
-# Set the page title etc.
 st.title("View Reports")
 st.markdown("---")
 
-# Reload buttons for equivalent courses and courses configuration
+# Reload buttons for equivalent courses and courses configuration.
 if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
@@ -47,28 +46,24 @@ if st.button("Reload Courses Configuration", help="Reload courses configuration 
     except Exception as e:
         st.error(f"Error reloading courses configuration: {e}")
 
-# Check if progress data is available
 if 'raw_df' not in st.session_state:
     st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
 else:
     df = st.session_state['raw_df']
-
     target_courses = st.session_state.get('target_courses')
     intensive_courses = st.session_state.get('intensive_courses')
-
     if target_courses is None or intensive_courses is None:
         st.warning("Courses not defined yet. Go to 'Customize Courses'.")
     else:
-        # Load previously saved assignments, if any
         per_student_assignments = load_assignments()
 
-        # Load equivalent courses mapping from local file (downloaded from Google Drive)
+        # Load equivalent courses mapping
         eq_df = None
         if os.path.exists('equivalent_courses.csv'):
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        # Process the progress report data
+        # Process the student progress report.
         required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
@@ -77,7 +72,6 @@ else:
             equivalent_courses_mapping
         )
 
-        # Calculate credits and append results to the dataframes
         credits_df = required_courses_df.apply(
             lambda row: calculate_credits(row, target_courses), axis=1
         )
@@ -88,51 +82,44 @@ else:
         )
         intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
 
-        # --- Toggle Options ---
-        # Toggle to show complete grade tokens versus primary grade only.
+        # Toggle to show all grade tokens vs. primary grade only.
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="When checked, display all recorded grade tokens for each course. Otherwise, show only the primary (highest-priority) grade."
+            help="When checked, display all recorded grade tokens for each course; otherwise, show only the primary grade."
         )
 
-        # Toggle for simplified display: if enabled, show 'c' for passed courses and blank for failing ones.
+        # Toggle for simplified display ("completed/not completed" view).
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="When checked, replace course grade values with a simple 'c' for passed courses; otherwise, show the grade information."
+            help="Replace detailed grade info with 'c' for passed courses and blank for failing ones."
         )
 
-        # --- Helper Function for Grade Extraction ---
         def extract_primary_grade(value):
             """
-            Given a processed grade string of the form "grade tokens | credit_or_marker",
-            return either all grade tokens (if grade_toggle is True) or the primary grade (based on GRADE_ORDER) if False.
+            Returns either the full grade tokens (if grade_toggle is True) or the primary grade based on GRADE_ORDER.
             """
             if not isinstance(value, str):
                 return value
             parts = value.split(" | ")
             if len(parts) < 2:
                 return value.strip()
-            # grades_part contains the grade tokens (e.g., "B+, A, C")
             grades_part = parts[0].strip()
-            # When showing all grades, just return all the tokens.
             if grade_toggle:
                 return grades_part
             else:
-                # Otherwise, select the primary grade based on GRADE_ORDER.
                 grades_list = [g.strip() for g in grades_part.split(",") if g.strip()]
                 for grade in GRADE_ORDER:
                     if grade in grades_list:
                         return grade
                 return grades_list[0] if grades_list else ""
 
-        # Prepare displayed dataframes
+        # Prepare displayed dataframes.
         displayed_df = required_courses_df.copy()
         intensive_displayed_df = intensive_courses_df.copy()
 
         if completed_toggle:
-            # Replace each cell with 'c' (for passed) if the cell's marker indicates the course is passed.
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(
                     lambda x: 'c' if (isinstance(x, str) and len(x.split('|')) == 2 and 
@@ -144,29 +131,37 @@ else:
                                       x.split('|')[1].strip() not in ['0', 'FAIL']) else ''
                 )
         else:
-            # Otherwise, apply the extraction of either full or primary grade tokens.
             for course in target_courses:
                 displayed_df[course] = displayed_df[course].apply(extract_primary_grade)
             for course in intensive_courses:
                 intensive_displayed_df[course] = intensive_displayed_df[course].apply(extract_primary_grade)
 
-        # --- Cell Formatting ---
-        def color_format(val):
-            return cell_color(str(val))
+        # Instead of using a simple applymap, we now iterate column-by-column to apply our new cell_color_for_course,
+        # which requires context (the course code and configuration).
+        required_styler = displayed_df.style
+        for course in target_courses.keys():
+            # Apply column-specific styling for required courses.
+            required_styler = required_styler.apply(
+                lambda s: s.apply(lambda x: cell_color_for_course(x, course, target_courses)),
+                subset=[course]
+            )
+        intensive_styler = intensive_displayed_df.style
+        for course in intensive_courses.keys():
+            intensive_styler = intensive_styler.apply(
+                lambda s: s.apply(lambda x: cell_color_for_course(x, course, intensive_courses)),
+                subset=[course]
+            )
 
-        styled_df = displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(target_courses.keys())])
-        intensive_styled_df = intensive_displayed_df.style.applymap(color_format, subset=pd.IndexSlice[:, list(intensive_courses.keys())])
-
-        # Display the processed report in separate tabs
+        # Display the processed report in separate tabs.
         from ui_components import display_dataframes
-        display_dataframes(styled_df, intensive_styled_df, extra_courses_df, df)
+        display_dataframes(required_styler, intensive_styler, extra_courses_df, df)
 
         st.markdown("**Color Legend:**")
         st.markdown("- Light Green: Passed courses")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Failed or not counted courses")
 
-        # --- Assignment Section (unchanged) ---
+        # Assignment section remains unchanged.
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
@@ -204,7 +199,6 @@ else:
                 st.success("Assignments saved.")
                 st.experimental_rerun()
 
-        # Display summary chart for completed vs. remaining credits
         if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
             summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
             fig = px.bar(
@@ -216,10 +210,10 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # Generate and provide the processed report file for download
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
         st.session_state['output'] = output.getvalue()
+        from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
         st.download_button(
             label="Download Processed Report",
@@ -228,7 +222,6 @@ else:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # Manual backup option
         import shutil, datetime
         def backup_files():
             timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

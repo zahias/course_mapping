@@ -15,15 +15,7 @@ def get_allowed_assignment_types():
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks if the given grade is one of the passing grades specified in the course configuration.
-    
-    Parameters:
-      - grade: The grade to evaluate (e.g., "B+").
-      - passing_grades_str: A comma-separated string of all passing grades (e.g., "A+,A,A-").
-    
-    Returns:
-      - True if the grade (after uppercasing and trimming) is contained in the passing grades list.
-      - False otherwise.
+    Checks if the given grade is in the list of allowed passing grades (comma‑separated).
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
@@ -31,46 +23,21 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility, export is_passing_grade as an alias.
+# For backward compatibility:
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Returns a CSS style string for the background color of a cell based on the processed grade value.
-    
-    The processed value is expected to be in the format:
-    
-        "grade tokens | marker"
-    
-    Where 'marker' is:
-      - A numeric value (the number of credits earned for the course),
-      - or a text marker ("PASS" or "FAIL") for courses with 0 credits,
-      - or "CR" for currently registered courses.
-    
-    Rules:
-      - If the value starts with "CR", return light yellow (#FFFACD).
-      - Otherwise, split the string using the pipe character ("|").
-        If a second part exists:
-          * Try to convert it to an integer:
-              - If the integer is > 0, return light green (passed).
-              - If the integer is 0, return pink (failed).
-          * If conversion fails:
-              - If the marker (after uppercasing) is "PASS", return light green.
-              - If it is "FAIL", return pink.
-      - If no second part is present or if none of the above conditions match, default to pink.
+    Legacy cell_color function (not used in our new approach).
     """
     if not isinstance(value, str):
         return ''
-    
     value = value.strip()
-    # Check for "CR" indicating currently registered.
     if value.upper().startswith("CR"):
         return 'background-color: #FFFACD'
-    
     parts = value.split("|")
     if len(parts) >= 2:
         marker = parts[1].strip()
-        # Try to interpret marker as an integer.
         try:
             numeric = int(marker)
             if numeric > 0:
@@ -78,14 +45,51 @@ def cell_color(value: str) -> str:
             else:
                 return 'background-color: pink'
         except ValueError:
-            # If conversion fails, check text markers.
             if marker.upper() == "PASS":
                 return 'background-color: lightgreen'
             elif marker.upper() == "FAIL":
                 return 'background-color: pink'
-    
-    # Fallback: if marker cannot be determined, check if any grade token (from left-hand part) is in GRADE_ORDER.
     tokens = [g.strip().upper() for g in parts[0].split(",") if g.strip()]
-    if any(token in GRADE_ORDER for token in tokens):
+    if any(g in GRADE_ORDER for g in tokens):
         return 'background-color: lightgreen'
     return 'background-color: pink'
+
+def cell_color_for_course(value: str, course_code: str, courses_config: dict) -> str:
+    """
+    New cell color function that re-computes pass/fail by using the allowed passing grades 
+    from the course configuration.
+    
+    Parameters:
+      - value: The processed cell value string, e.g. "B, A | 3" or "D, F | 0" or "P | PASS".
+      - course_code: The course identifier (which is the column name in the pivot table).
+      - courses_config: Dictionary of course configuration for that category (target_courses or intensive_courses).
+      
+    Logic:
+      - If value begins with "CR", return light yellow.
+      - Otherwise, split the value by "|" to extract the grade tokens.
+      - Retrieve the allowed passing grades (a comma-separated string) from courses_config for the course.
+      - Split that string into a list.
+      - If at least one token (after uppercasing) is found in the allowed passing list, return light green.
+      - Otherwise, return pink.
+    """
+    if not isinstance(value, str):
+        return ''
+    val = value.strip()
+    if val.upper().startswith("CR"):
+        return 'background-color: #FFFACD'
+    parts = val.split("|")
+    if len(parts) < 2:
+        # Fallback to legacy approach if format unexpected.
+        tokens = [g.strip().upper() for g in val.split(",") if g.strip()]
+        if any(token in GRADE_ORDER for token in tokens):
+            return 'background-color: lightgreen'
+        return 'background-color: pink'
+    grade_tokens = parts[0].strip()
+    tokens = [t.strip().upper() for t in grade_tokens.split(",") if t.strip()]
+    # Retrieve allowed passing grades for this course.
+    allowed_str = courses_config.get(course_code, {}).get("PassingGrades", "")
+    allowed_grades = [x.strip().upper() for x in allowed_str.split(",") if x.strip()]
+    if any(token in allowed_grades for token in tokens):
+        return 'background-color: lightgreen'
+    else:
+        return 'background-color: pink'
