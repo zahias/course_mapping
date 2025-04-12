@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from config import get_allowed_assignment_types, GRADE_ORDER, cell_color_for_course
+from config import get_allowed_assignment_types, GRADE_ORDER, cell_color
 
 st.title("View Reports")
 st.markdown("---")
@@ -58,12 +58,14 @@ else:
     else:
         per_student_assignments = load_assignments()
 
+        # Load equivalent courses mapping
         eq_df = None
         if os.path.exists('equivalent_courses.csv'):
             eq_df = pd.read_csv('equivalent_courses.csv')
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-        required_courses_df, intensive_courses_df, extra_courses_df, _ = process_progress_report(
+        # Process progress report; pivot tables now contain tuples.
+        pivot_df, intensive_pivot_df, extra_courses_df, _ = process_progress_report(
             df,
             target_courses,
             intensive_courses,
@@ -71,78 +73,100 @@ else:
             equivalent_courses_mapping
         )
 
-        credits_df = required_courses_df.apply(
-            lambda row: calculate_credits(row, target_courses), axis=1
-        )
-        required_courses_df = pd.concat([required_courses_df, credits_df], axis=1)
-
-        intensive_credits_df = intensive_courses_df.apply(
-            lambda row: calculate_credits(row, intensive_courses), axis=1
-        )
-        intensive_courses_df = pd.concat([intensive_courses_df, intensive_credits_df], axis=1)
-
+        # Create separate DataFrames: one for grade display and one for status
+        grade_df = pivot_df.copy()
+        status_df = pivot_df.copy()
+        for course in target_courses:
+            grade_df[course] = grade_df[course].apply(lambda tup: tup[0] if isinstance(tup, tuple) else tup)
+            status_df[course] = status_df[course].apply(lambda tup: tup[1] if isinstance(tup, tuple) else "FAILED")
+        
+        intensive_grade_df = intensive_pivot_df.copy()
+        intensive_status_df = intensive_pivot_df.copy()
+        for course in intensive_courses:
+            intensive_grade_df[course] = intensive_grade_df[course].apply(lambda tup: tup[0] if isinstance(tup, tuple) else tup)
+            intensive_status_df[course] = intensive_status_df[course].apply(lambda tup: tup[1] if isinstance(tup, tuple) else "FAILED")
+        
+        # Calculate credits
+        credits_df = pivot_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
+        pivot_df = pd.concat([pivot_df, credits_df], axis=1)
+        intensive_credits_df = intensive_pivot_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
+        intensive_pivot_df = pd.concat([intensive_pivot_df, intensive_credits_df], axis=1)
+        
+        # Toggle options.
         grade_toggle = st.checkbox(
             "Show All Grades",
             value=False,
-            help="Display all grade tokens for each course when checked; otherwise show only the primary grade."
+            help="When checked, display all grade tokens; otherwise, show only the primary grade."
         )
-
         completed_toggle = st.checkbox(
             "Show Completed/Not Completed Only",
             value=False,
-            help="Replace detailed grade information with 'c' for passed courses; otherwise show full information."
+            help="When enabled, display 'c' for passed courses and blank for failed courses."
         )
 
         def extract_primary_grade(value):
+            """
+            For a given grade string, if grade_toggle is True, return all tokens; otherwise,
+            return the primary grade from GRADE_ORDER.
+            """
             if not isinstance(value, str):
                 return value
             parts = value.split(" | ")
             if len(parts) < 2:
                 return value.strip()
-            grades_part = parts[0].strip()
+            tokens = [g.strip() for g in parts[0].split(",") if g.strip()]
             if grade_toggle:
-                return grades_part
+                return ", ".join(tokens)
             else:
-                grades_list = [g.strip() for g in grades_part.split(",") if g.strip()]
                 for grade in GRADE_ORDER:
-                    if grade in grades_list:
+                    if grade in tokens:
                         return grade
-                return grades_list[0] if grades_list else ""
+                return tokens[0] if tokens else ""
 
-        displayed_df = required_courses_df.copy()
-        intensive_displayed_df = intensive_courses_df.copy()
-
+        # Depending on completed_toggle, update the display DataFrame.
         if completed_toggle:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(
-                    lambda x: 'c' if (isinstance(x, str) and len(x.split('|')) == 2 and 
-                                      x.split('|')[1].strip() not in ['0', 'FAIL']) else ''
+                grade_df[course] = grade_df[course].apply(
+                    lambda x: 'c' if status_df[course].loc[x.index] == "PASSED" else ''
                 )
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(
-                    lambda x: 'c' if (isinstance(x, str) and len(x.split('|')) == 2 and 
-                                      x.split('|')[1].strip() not in ['0', 'FAIL']) else ''
+                intensive_grade_df[course] = intensive_grade_df[course].apply(
+                    lambda x: 'c' if intensive_status_df[course].loc[x.index] == "PASSED" else ''
                 )
         else:
             for course in target_courses:
-                displayed_df[course] = displayed_df[course].apply(extract_primary_grade)
+                grade_df[course] = grade_df[course].apply(extract_primary_grade)
             for course in intensive_courses:
-                intensive_displayed_df[course] = intensive_displayed_df[course].apply(extract_primary_grade)
+                intensive_grade_df[course] = intensive_grade_df[course].apply(extract_primary_grade)
 
-        # Apply column-specific styling using the new cell_color_for_course.
-        required_styler = displayed_df.style
+        # New cell color function based solely on status.
+        def cell_color_from_status(status):
+            if status.upper() == "CR":
+                return 'background-color: #FFFACD'
+            elif status.upper() == "PASSED":
+                return 'background-color: lightgreen'
+            elif status.upper() in ["FAILED", "NR"]:
+                return 'background-color: pink'
+            else:
+                return 'background-color: pink'
+
+        # Apply column-specific styling using the status DataFrame.
+        required_styler = grade_df.style
         for course in target_courses.keys():
             required_styler = required_styler.apply(
-                lambda s: s.apply(lambda x: cell_color_for_course(x, course, target_courses)),
+                lambda s: s.apply(lambda x, course=course: cell_color_from_status(status_df[course].loc[s.index[0]] if not s.empty else "FAILED")),
                 subset=[course]
             )
-        intensive_styler = intensive_displayed_df.style
+        # Alternatively, you may iterate cell-by-cell. Here, for simplicity, we apply styling based on the status.
+        # (Adjust this logic as needed for your implementation.)
+
+        intensive_styler = intensive_grade_df.style
         for course in intensive_courses.keys():
             intensive_styler = intensive_styler.apply(
-                lambda s: s.apply(lambda x: cell_color_for_course(x, course, intensive_courses)),
+                lambda s: s.apply(lambda x, course=course: cell_color_from_status(intensive_status_df[course].loc[s.index[0]] if not s.empty else "FAILED")),
                 subset=[course]
             )
-
+        
         from ui_components import display_dataframes
         display_dataframes(required_styler, intensive_styler, extra_courses_df, df)
 
@@ -151,13 +175,13 @@ else:
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Failed or not counted courses")
 
+        # Assignment Section (unchanged)
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         if st.button("Reset All Assignments", help="Clears all saved assignments"):
             reset_assignments()
             st.success("All assignments have been reset.")
             st.experimental_rerun()
-
         search_student = st.text_input("Search by Student ID or Name", help="Type to filter extra courses by student or course")
         extra_courses_df['ID'] = extra_courses_df['ID'].astype(str)
         allowed_assignment_types = get_allowed_assignment_types()
@@ -188,9 +212,9 @@ else:
                 save_assignments(updated_per_student_assignments)
                 st.success("Assignments saved.")
                 st.experimental_rerun()
-
-        if '# of Credits Completed' in required_courses_df.columns and '# Remaining' in required_courses_df.columns:
-            summary_df = required_courses_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
+        
+        if '# of Credits Completed' in pivot_df.columns and '# Remaining' in pivot_df.columns:
+            summary_df = pivot_df[['ID', 'NAME', '# of Credits Completed', '# Remaining']].copy()
             fig = px.bar(
                 summary_df,
                 x='NAME',
@@ -199,9 +223,9 @@ else:
                 title="Completed vs. Remaining Credits per Student"
             )
             st.plotly_chart(fig, use_container_width=True)
-
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
+        output = save_report_with_formatting(grade_df, intensive_grade_df, timestamp)
         st.session_state['output'] = output.getvalue()
         from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
@@ -211,7 +235,7 @@ else:
             file_name="student_progress_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
+        
         import shutil, datetime
         def backup_files():
             timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
