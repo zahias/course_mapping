@@ -9,7 +9,7 @@ st.title("Customize Courses")
 
 st.write(
     "Upload a custom CSV file for your courses configuration. It must include the columns: "
-    "'Course', 'Credits', 'PassingGrades', and 'Type'.  "
+    "'Course', 'Credits', 'PassingGrades', and 'Type'. "
     "For example, the PassingGrades for ARAB201 might be: A+,A,A-,B+,B,B-,C+,C,C-."
 )
 
@@ -40,22 +40,22 @@ with st.expander("Courses Configuration Options", expanded=True):
                     download_file(service, file_id, "courses_config.csv")
                     st.success("Courses configuration reloaded from Google Drive.")
                 else:
-                    st.info("No configuration found on Google Drive. Uploading local copy.")
+                    st.info("No configuration file found on Google Drive. Uploading your local copy.")
                     if uploaded_courses is not None:
                         with open("courses_config.csv", "wb") as f:
                             f.write(uploaded_courses.getbuffer())
                         upload_file(service, "courses_config.csv", "courses_config.csv")
                         st.success("Courses configuration uploaded to Google Drive.")
             except Exception as e:
-                st.error(f"Error reloading courses configuration: {e}")
+                st.error(f"Error reloading configuration: {e}")
 
-    # Load courses configuration: if uploaded file is provided, use it; otherwise, try local file (synced from Drive)
+    # Load courses configuration: prefer uploaded file; else, local file.
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
             courses_df.to_csv("courses_config.csv", index=False)
         except Exception as e:
-            st.error(f"Error reading uploaded configuration file: {e}")
+            st.error(f"Error reading uploaded configuration: {e}")
             courses_df = None
     elif os.path.exists("courses_config.csv"):
         courses_df = pd.read_csv("courses_config.csv")
@@ -83,17 +83,15 @@ with st.expander("Courses Configuration Options", expanded=True):
             st.session_state['target_courses'] = target_courses
             st.session_state['intensive_courses'] = intensive_courses
 
-            # Sync the courses configuration to Google Drive if not already there.
             try:
                 creds = authenticate_google_drive()
                 service = build('drive', 'v3', credentials=creds)
                 file_id = search_file(service, "courses_config.csv")
                 if not file_id:
                     upload_file(service, "courses_config.csv", "courses_config.csv")
-                    st.info("Courses configuration file uploaded to Google Drive.")
+                    st.info("Courses configuration uploaded to Google Drive.")
             except Exception as e:
                 st.error(f"Error syncing configuration to Google Drive: {e}")
-
             st.success("Courses configuration loaded successfully.")
         else:
             st.error("The configuration file must contain: Course, Credits, PassingGrades, and Type.")
@@ -102,7 +100,6 @@ with st.expander("Courses Configuration Options", expanded=True):
 
 with st.expander("Equivalent Courses", expanded=True):
     st.write("This section automatically loads the 'equivalent_courses.csv' file from Google Drive.")
-    # Here you can add similar logic to sync equivalent_courses.csv.
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
@@ -115,7 +112,6 @@ with st.expander("Equivalent Courses", expanded=True):
     except Exception as e:
         st.error(f"Error loading equivalent courses: {e}")
 
-# Assignment Types section remains the same.
 with st.expander("Assignment Types Configuration", expanded=True):
     st.write("Enter the comma-separated assignment types (for example, S.C.E, F.E.C, ARAB201).")
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
@@ -125,6 +121,5 @@ with st.expander("Assignment Types Configuration", expanded=True):
         st.session_state["allowed_assignment_types"] = new_types
         st.success("Assignment types updated.")
 
-# Developer attribution at the bottom of Customize Courses.
 st.markdown("<hr style='border: none; height: 2px; background-color: #aaa;'/>", unsafe_allow_html=True)
 st.markdown("<div style='text-align: center; font-size: 14px;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)

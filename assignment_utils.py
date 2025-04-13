@@ -41,7 +41,7 @@ def delete_assignment(conn, student_id, assignment_type):
         st.error(f"Error deleting assignment: {e}")
 
 def load_assignments(db_path='assignments.db'):
-    # Ensure the assignments table exists
+    # Ensure the assignments table exists before querying
     conn = init_db(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT student_id, course, assignment_type FROM assignments')
@@ -85,7 +85,7 @@ def validate_assignments(edited_df, per_student_assignments):
     return errors, per_student_assignments
 
 def save_assignments(assignments, db_path='assignments.db', csv_path='sce_fec_assignments.csv'):
-    # Save to local SQLite database
+    # Save to the local SQLite database.
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     for student_id, assigns in assignments.items():
@@ -97,7 +97,7 @@ def save_assignments(assignments, db_path='assignments.db', csv_path='sce_fec_as
     conn.commit()
     conn.close()
 
-    # Save to CSV locally
+    # Save assignments to a CSV file.
     assignments_list = []
     for student_id, assigns in assignments.items():
         for atype, course in assigns.items():
@@ -109,11 +109,11 @@ def save_assignments(assignments, db_path='assignments.db', csv_path='sce_fec_as
     assignments_df = pd.DataFrame(assignments_list)
     assignments_df.to_csv(csv_path, index=False)
 
-    # Sync with Google Drive: update existing file or upload if missing.
+    # Sync with Google Drive: update if exists; if not, upload.
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
-        folder_id = None  # Adjust if needed.
+        folder_id = None  # Adjust folder if needed.
         file_id = search_file(service, csv_path, folder_id=folder_id)
         if file_id:
             update_file(service, file_id, csv_path)
