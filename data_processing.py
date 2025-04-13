@@ -128,15 +128,14 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
 
 def determine_course_value(grade, course, courses_dict):
     """
-    Processes a course grade using the configuration data.
+    Processes a course grade using the course configuration.
     
     For courses with nonzero credits:
-      - If any of the student's grade tokens (split from the grade string) is in the course’s PassingGrades list,
+      - If any token in the student's grade (split by comma) is in the course’s PassingGrades list,
         returns "grade tokens | {credits}".
       - Otherwise, returns "grade tokens | 0".
-    For 0‑credit courses:
-      - Returns "grade tokens | PASS" if passed,
-      - and "grade tokens | FAIL" if not passed.
+    For 0-credit courses:
+      - Returns "grade tokens | PASS" if passed, and "grade tokens | FAIL" if not passed.
     """
     info = courses_dict[course]
     credits = info["Credits"]
@@ -180,7 +179,7 @@ def calculate_credits(row, courses_dict):
                             remaining += credit
                     except ValueError:
                         if right.upper() == "PASS":
-                            # For 0-credit courses, passed but no credits to add
+                            # For 0-credit courses: passed (but no credit to add)
                             pass
                         else:
                             remaining += credit

@@ -19,6 +19,7 @@ from config import get_allowed_assignment_types, GRADE_ORDER, extract_primary_gr
 st.title("View Reports")
 st.markdown("---")
 
+# Reload equivalent courses and courses configuration from Google Drive
 if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
@@ -59,34 +60,57 @@ else:
         if os.path.exists("equivalent_courses.csv"):
             eq_df = pd.read_csv("equivalent_courses.csv")
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
-        
-        # Process report to get full detailed view
+
+        # Process the report to get the detailed (full) version.
         full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
             df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
         )
-        # Precompute a version with primary grade extracted
+
+        # Precompute a simplified primary-grade version (that now includes credits)
         primary_req_df = full_req_df.copy()
         for course in target_courses:
             primary_req_df[course] = primary_req_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
         primary_int_df = intensive_req_df.copy()
         for course in intensive_courses:
             primary_int_df[course] = primary_int_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
-        
-        # Toggle to choose display version
-        show_all_toggle = st.checkbox("Show All Grades", value=True, help="Toggle to display all recorded grade tokens vs. only the primary grade.")
+
+        # Toggle 1: Show All Grades vs. Simplified Primary-Grade (with credits) view.
+        show_all_toggle = st.checkbox("Show All Grades", value=True, help="If enabled, display detailed grade tokens with earned credits; if disabled, display only the primary grade with its credit.")
         if show_all_toggle:
             displayed_req_df = full_req_df.copy()
             displayed_int_df = intensive_req_df.copy()
         else:
             displayed_req_df = primary_req_df.copy()
             displayed_int_df = primary_int_df.copy()
-        
-        # Calculate credits (using full pivot data)
+
+        # Toggle 2: Show Completed/Not Completed Only.
+        # When enabled, each cell is replaced with "c" if passed, and blank if not.
+        show_complete_toggle = st.checkbox("Show Completed/Not Completed Only", value=False, help="If enabled, display 'c' for passed courses and nothing for failed courses.")
+        if show_complete_toggle:
+            def collapse_pass_fail(value):
+                if not isinstance(value, str):
+                    return value
+                # Check if the cell value can be split by "|" into [grade_tokens, credit]
+                parts = value.split("|")
+                if len(parts) == 2:
+                    credit_part = parts[1].strip()
+                    try:
+                        # For numeric credit values:
+                        num = int(credit_part)
+                        return "c" if num > 0 else ""
+                    except ValueError:
+                        # For nonnumeric markers (for 0-credit courses):
+                        return "c" if credit_part.upper() == "PASS" else ""
+                return value
+            displayed_req_df = displayed_req_df.applymap(collapse_pass_fail)
+            displayed_int_df = displayed_int_df.applymap(collapse_pass_fail)
+
+        # Calculate credits based on the full (detailed) version.
         credits_df = full_req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         full_req_df = pd.concat([full_req_df, credits_df], axis=1)
         intensive_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_req_df = pd.concat([intensive_req_df, intensive_credits_df], axis=1)
-        
+
         allowed_assignment_types = get_allowed_assignment_types()
         from ui_components import display_dataframes
         display_dataframes(
@@ -94,6 +118,7 @@ else:
             displayed_int_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
             extra_courses_df, df
         )
+
         st.markdown("**Color Legend:**")
         st.markdown("- Light Green: Passed courses")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
@@ -150,6 +175,7 @@ else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_req_df, displayed_int_df, timestamp)
         st.session_state["output"] = output.getvalue()
+        from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
         st.download_button(
             label="Download Processed Report",

@@ -6,8 +6,7 @@ GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-
 def get_allowed_assignment_types():
     """
     Returns the list of assignment types.
-    Uses the user-defined list from session state if available,
-    otherwise returns the default list.
+    Uses session state if available; otherwise, returns the default list.
     """
     if "allowed_assignment_types" in st.session_state:
         return st.session_state["allowed_assignment_types"]
@@ -15,10 +14,9 @@ def get_allowed_assignment_types():
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks whether a given grade is one of the acceptable passing grades
-    as defined by the comma-separated passing_grades_str from the configuration file.
+    Checks if the given grade is in the comma-separated list of passing grades.
     For example, if passing_grades_str is "A+,A,A-", then the function returns True
-    if grade (after cleaning and uppercasing) is one of those.
+    if the uppercased, trimmed grade is found in that list.
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(",")]
@@ -26,20 +24,19 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility, export an alias.
+# For backward compatibility, provide an alias.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Returns a CSS style string for setting a cell’s background color based on its value.
+    Returns a CSS style string for the cell background based on its processed value.
     
     Logic:
-      - If the value starts with "CR" (currently registered), returns light yellow (#FFFACD).
-      - Otherwise, splits the value by the pipe symbol ("|") and examines the right-hand side:
-          • If that portion is a numeric string and > 0, returns light green; if 0, returns pink.
-          • If nonnumeric (e.g. "PASS" or "FAIL" for 0-credit courses), "PASS" returns light green and "FAIL" returns pink.
-      - As a fallback, if any token in the left-hand side (grade tokens) is recognized in GRADE_ORDER,
-        light green is returned; otherwise, pink.
+      - If the value starts with "CR", returns light yellow (#FFFACD) to indicate current registration.
+      - Otherwise, it splits the value by the pipe ("|") and examines the right-hand side:
+          • If numeric, a value > 0 means passed (light green); 0 means failed (pink).
+          • If nonnumeric (e.g. "PASS" or "FAIL" for 0-credit courses), "PASS" yields light green and "FAIL" yields pink.
+      - As a fallback, if any token in the left-hand side is in GRADE_ORDER, returns light green; otherwise, pink.
     """
     if not isinstance(value, str):
         return ""
@@ -64,12 +61,13 @@ def cell_color(value: str) -> str:
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    Given a processed full grade string (e.g., "B+, A, C | 3" or "A, B | PASS"),
-    this function extracts the primary grade based on the global GRADE_ORDER.
+    Given a processed full grade string (for example, "B+, A, C | 3" or "A, B | PASS"),
+    this function extracts the primary grade based on GRADE_ORDER and preserves the earned credit.
     
-    It splits the string on the pipe ("|"), examines the left-hand side (the grade tokens),
-    and returns the first grade (according to GRADE_ORDER) that appears among the tokens.
-    If no token matches (or no tokens are present), it returns the first available token or an empty string.
+    It splits the string at the pipe ("|"):
+      - The left-hand side contains grade tokens (possibly multiple).
+      - The right-hand side contains the earned credit (numeric or PASS/FAIL).
+    The function returns a string in the format "PrimaryGrade | Credit".
     """
     if not isinstance(value, str):
         return value
@@ -77,10 +75,11 @@ def extract_primary_grade_from_full_value(value: str) -> str:
     if len(parts) < 2:
         return value
     grades_part = parts[0].strip()
+    credit_part = parts[1].strip()
     if not grades_part:
         return ""
     tokens = [g.strip().upper() for g in grades_part.split(",") if g.strip()]
     for grade in GRADE_ORDER:
         if grade in tokens:
-            return grade
-    return tokens[0] if tokens else ""
+            return f"{grade} | {credit_part}"
+    return f"{tokens[0]} | {credit_part}" if tokens else ""
