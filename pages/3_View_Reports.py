@@ -107,7 +107,7 @@ else:
                 else:
                     save_assignments(updated_assignments)
                     st.success("Assignments saved.")
-                    st.experimental_rerun()
+                    st.rerun()
         with col2:
             if st.button("Reset All Assignments", help="Clear all assignment data"):
                 reset_assignments()
