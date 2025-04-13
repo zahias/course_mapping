@@ -8,7 +8,6 @@ from googleapiclient.discovery import build
 def init_db(db_path='assignments.db'):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    # Create table with dynamic assignment types (no check constraint)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS assignments (
             student_id TEXT NOT NULL,
@@ -42,7 +41,7 @@ def delete_assignment(conn, student_id, assignment_type):
         st.error(f"Error deleting assignment: {e}")
 
 def load_assignments(db_path='assignments.db'):
-    # Ensure the assignments table exists before querying.
+    # Ensure the assignments table exists
     conn = init_db(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT student_id, course, assignment_type FROM assignments')
@@ -70,12 +69,12 @@ def validate_assignments(edited_df, per_student_assignments):
         course = row['Course']
         if student_id not in new_assignments:
             new_assignments[student_id] = {}
-        for assign_type in allowed_assignment_types:
-            if row.get(assign_type, False):
-                if assign_type in new_assignments[student_id]:
-                    errors.append(f"Student ID {student_id} has multiple {assign_type} courses selected.")
+        for atype in allowed_assignment_types:
+            if row.get(atype, False):
+                if atype in new_assignments[student_id]:
+                    errors.append(f"Student ID {student_id} has multiple {atype} courses selected.")
                 else:
-                    new_assignments[student_id][assign_type] = course
+                    new_assignments[student_id][atype] = course
 
     for student_id, assigns in new_assignments.items():
         if student_id not in per_student_assignments:
@@ -86,35 +85,35 @@ def validate_assignments(edited_df, per_student_assignments):
     return errors, per_student_assignments
 
 def save_assignments(assignments, db_path='assignments.db', csv_path='sce_fec_assignments.csv'):
-    # Save to the local SQLite database.
+    # Save to local SQLite database
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     for student_id, assigns in assignments.items():
-        for assignment_type, course in assigns.items():
+        for atype, course in assigns.items():
             cursor.execute('''
                 INSERT OR REPLACE INTO assignments (student_id, assignment_type, course)
                 VALUES (?, ?, ?)
-            ''', (student_id, assignment_type, course))
+            ''', (student_id, atype, course))
     conn.commit()
     conn.close()
 
-    # Also save assignments to a CSV file.
+    # Save to CSV locally
     assignments_list = []
     for student_id, assigns in assignments.items():
-        for assignment_type, course in assigns.items():
+        for atype, course in assigns.items():
             assignments_list.append({
                 'student_id': student_id,
-                'assignment_type': assignment_type,
+                'assignment_type': atype,
                 'course': course
             })
     assignments_df = pd.DataFrame(assignments_list)
     assignments_df.to_csv(csv_path, index=False)
 
-    # Sync with Google Drive: try to update the existing file; if not found, then upload a new file.
+    # Sync with Google Drive: update existing file or upload if missing.
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
-        folder_id = None  # Adjust if you want a specific folder.
+        folder_id = None  # Adjust if needed.
         file_id = search_file(service, csv_path, folder_id=folder_id)
         if file_id:
             update_file(service, file_id, csv_path)
@@ -126,10 +125,9 @@ def save_assignments(assignments, db_path='assignments.db', csv_path='sce_fec_as
         st.error(f"Error syncing assignments with Google Drive: {e}")
 
 def reset_assignments(csv_path='sce_fec_assignments.csv', db_path='assignments.db'):
-    # Remove the local CSV file.
+    # Remove local files if they exist.
     if os.path.exists(csv_path):
         os.remove(csv_path)
-    # Remove the local SQLite database.
     if os.path.exists(db_path):
         os.remove(db_path)
     try:

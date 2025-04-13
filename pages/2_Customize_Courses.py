@@ -8,9 +8,9 @@ st.set_page_config(page_title="Customize Courses", layout="wide")
 st.title("Customize Courses")
 
 st.write(
-    "Upload a custom CSV file to define your courses configuration. The file must contain the columns: "
+    "Upload a custom CSV file for your courses configuration. It must include the columns: "
     "'Course', 'Credits', 'PassingGrades', and 'Type'.  "
-    "For example, for ARAB201 the PassingGrades may be: A+,A,A-,B+,B,B-,C+,C,C-."
+    "For example, the PassingGrades for ARAB201 might be: A+,A,A-,B+,B,B-,C+,C,C-."
 )
 
 with st.expander("Courses Configuration Options", expanded=True):
@@ -40,24 +40,22 @@ with st.expander("Courses Configuration Options", expanded=True):
                     download_file(service, file_id, "courses_config.csv")
                     st.success("Courses configuration reloaded from Google Drive.")
                 else:
-                    st.info("No courses configuration file found on Google Drive. Uploading your local copy now.")
+                    st.info("No configuration found on Google Drive. Uploading local copy.")
                     if uploaded_courses is not None:
-                        # Save your uploaded file locally and then upload to Drive
                         with open("courses_config.csv", "wb") as f:
                             f.write(uploaded_courses.getbuffer())
                         upload_file(service, "courses_config.csv", "courses_config.csv")
-                        st.success("Courses configuration file uploaded to Google Drive.")
+                        st.success("Courses configuration uploaded to Google Drive.")
             except Exception as e:
-                st.error(f"Error reloading courses configuration from Google Drive: {e}")
+                st.error(f"Error reloading courses configuration: {e}")
 
-    # Load the configuration: Prefer local file from drive if available.
+    # Load courses configuration: if uploaded file is provided, use it; otherwise, try local file (synced from Drive)
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
-            # Save the uploaded file locally (and sync to Drive if needed)
             courses_df.to_csv("courses_config.csv", index=False)
         except Exception as e:
-            st.error(f"Error reading the uploaded courses configuration file: {e}")
+            st.error(f"Error reading uploaded configuration file: {e}")
             courses_df = None
     elif os.path.exists("courses_config.csv"):
         courses_df = pd.read_csv("courses_config.csv")
@@ -68,7 +66,6 @@ with st.expander("Courses Configuration Options", expanded=True):
         req_cols = {'Course', 'Credits', 'PassingGrades', 'Type'}
         if req_cols.issubset(courses_df.columns):
             courses_df['Course'] = courses_df['Course'].str.upper().str.strip()
-            # Separate configurations for required and intensive courses.
             required_df = courses_df[courses_df['Type'].str.lower() == 'required']
             intensive_df = courses_df[courses_df['Type'].str.lower() == 'intensive']
             target_courses = {}
@@ -92,19 +89,33 @@ with st.expander("Courses Configuration Options", expanded=True):
                 service = build('drive', 'v3', credentials=creds)
                 file_id = search_file(service, "courses_config.csv")
                 if not file_id:
-                    # Upload the local file to Drive.
                     upload_file(service, "courses_config.csv", "courses_config.csv")
                     st.info("Courses configuration file uploaded to Google Drive.")
             except Exception as e:
-                st.error(f"Error syncing courses configuration to Google Drive: {e}")
+                st.error(f"Error syncing configuration to Google Drive: {e}")
 
             st.success("Courses configuration loaded successfully.")
         else:
-            st.error("Courses configuration file must contain: Course, Credits, PassingGrades, and Type.")
+            st.error("The configuration file must contain: Course, Credits, PassingGrades, and Type.")
     else:
         st.info("No courses configuration loaded. Please upload a configuration file.")
 
-# Assignment Types Configuration remains the same.
+with st.expander("Equivalent Courses", expanded=True):
+    st.write("This section automatically loads the 'equivalent_courses.csv' file from Google Drive.")
+    # Here you can add similar logic to sync equivalent_courses.csv.
+    try:
+        creds = authenticate_google_drive()
+        service = build('drive', 'v3', credentials=creds)
+        file_id = search_file(service, "equivalent_courses.csv")
+        if file_id:
+            download_file(service, file_id, "equivalent_courses.csv")
+            st.success("Equivalent courses file loaded from Google Drive.")
+        else:
+            st.info("No equivalent courses file found on Google Drive.")
+    except Exception as e:
+        st.error(f"Error loading equivalent courses: {e}")
+
+# Assignment Types section remains the same.
 with st.expander("Assignment Types Configuration", expanded=True):
     st.write("Enter the comma-separated assignment types (for example, S.C.E, F.E.C, ARAB201).")
     default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
@@ -114,6 +125,6 @@ with st.expander("Assignment Types Configuration", expanded=True):
         st.session_state["allowed_assignment_types"] = new_types
         st.success("Assignment types updated.")
 
-# At the bottom, place a full-width horizontal bar with the developer attribution.
+# Developer attribution at the bottom of Customize Courses.
 st.markdown("<hr style='border: none; height: 2px; background-color: #aaa;'/>", unsafe_allow_html=True)
 st.markdown("<div style='text-align: center; font-size: 14px;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)
