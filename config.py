@@ -5,7 +5,9 @@ GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-
 
 def get_allowed_assignment_types():
     """
-    Returns the list of assignment types. Uses session state if available.
+    Returns the list of assignment types.
+    Uses the user-defined list from session state if available,
+    otherwise returns the default list.
     """
     if "allowed_assignment_types" in st.session_state:
         return st.session_state["allowed_assignment_types"]
@@ -13,47 +15,46 @@ def get_allowed_assignment_types():
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks if the given grade is one of the passing grades from a comma‐separated string.
-    For example, if passing_grades_str is "A+,A,A-", then the function returns True
-    if grade (after cleaning and uppercasing) is one of those.
+    Checks whether a given grade is one of the acceptable passing grades
+    as defined by the comma-separated passing_grades_str from the configuration file.
     """
     try:
-        passing_grades = [x.strip().upper() for x in passing_grades_str.split(',')]
+        passing_grades = [x.strip().upper() for x in passing_grades_str.split(",")]
     except Exception:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility, export an alias.
+# For backward compatibility, export is_passing_grade as an alias.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Returns a CSS style string for a cell’s background color based on its processed value.
+    Returns a CSS style string for setting a cell’s background color based on its value.
     
     Logic:
-      - If the value starts with "CR", returns light yellow (#FFFACD).
-      - Otherwise, splits the value by the pipe ("|") and inspects the second portion.
-        * For courses with nonzero credit, if the numeric part > 0, returns light green; if 0, returns pink.
-        * For 0‑credit courses (using "PASS"/"FAIL"), returns light green if "PASS" or pink if "FAIL".
-      - As a fallback, if any grade token from the left portion is in GRADE_ORDER, returns light green.
+      - If the value starts with "CR" (currently registered), returns a light yellow color.
+      - Otherwise, splits the value by the pipe symbol ("|") and examines the right-hand side:
+          • If that portion is a numeric string: nonzero means passing (light green), 0 means failing (pink).
+          • If nonnumeric (e.g. "PASS" or "FAIL" for 0‑credit courses), "PASS" returns light green and "FAIL" returns pink.
+      - As a fallback, if any token in the left-hand side (grade tokens) is recognized in GRADE_ORDER,
+        light green is returned; otherwise pink.
     """
     if not isinstance(value, str):
-        return ''
+        return ""
     value = value.strip()
     if value.upper().startswith("CR"):
         return "background-color: #FFFACD"
     parts = value.split("|")
     if len(parts) == 2:
-        second = parts[1].strip()
+        right = parts[1].strip()
         try:
-            num = int(second)
+            num = int(right)
             return "background-color: lightgreen" if num > 0 else "background-color: pink"
         except ValueError:
-            if second.upper() == "PASS":
+            if right.upper() == "PASS":
                 return "background-color: lightgreen"
-            elif second.upper() == "FAIL":
+            elif right.upper() == "FAIL":
                 return "background-color: pink"
-    # Fallback: if any grade token is recognized (even if failing)
     tokens = [g.strip().upper() for g in parts[0].split(",") if g.strip()]
     if any(g in GRADE_ORDER for g in tokens):
         return "background-color: lightgreen"
@@ -61,9 +62,12 @@ def cell_color(value: str) -> str:
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    Given a processed full grade string (e.g., "B+, A, C | 3"), this function scans
-    the grade tokens (from left of the pipe) and returns the highest-priority grade
-    (using GRADE_ORDER) found in that list. If no token is found, it returns an empty string.
+    Given a processed full grade string (e.g., "B+, A, C | 3" or "A, B | PASS"), this function extracts
+    the primary grade based on the global GRADE_ORDER.
+    
+    It splits the string on the pipe ("|") and examines the left-hand side (the grade tokens).
+    It then returns the first grade (according to GRADE_ORDER) that appears among the tokens.
+    If none match, it returns the first available token or an empty string.
     """
     if not isinstance(value, str):
         return value
