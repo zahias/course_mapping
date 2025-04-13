@@ -131,7 +131,7 @@ else:
             if save_btn:
                 save_assignments(updated_assignments)
                 st.success("Assignments saved.")
-                st.experimental_rerun()
+                st.rerun()
         
         # For downloading, if download button is pressed, force download.
         if download_btn:
