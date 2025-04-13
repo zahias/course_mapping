@@ -119,7 +119,7 @@ else:
         if reset_btn:
             reset_assignments()
             st.success("All assignments have been reset.")
-            st.experimental_rerun()
+            st.rerun()
         
         from assignment_utils import validate_assignments
         errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
