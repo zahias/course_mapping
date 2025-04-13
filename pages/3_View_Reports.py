@@ -1,28 +1,26 @@
 import streamlit as st
 import pandas as pd
+import base64
 from data_processing import (
     process_progress_report,
     calculate_credits,
     save_report_with_formatting,
     read_equivalent_courses
 )
-from ui_components import display_dataframes, add_assignment_selection
 from logging_utils import log_action
 from datetime import datetime
 import os
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
 from config import get_allowed_assignment_types, GRADE_ORDER, extract_primary_grade_from_full_value, cell_color
-import base64  # Import base64 for encoding the file
 
 st.set_page_config(page_title="View Reports", layout="wide")
 st.title("Required Courses Progress Report")
-# Render the color legend on one line.
 st.markdown(
     "<p><strong>Color Legend:</strong> "
     "<span style='background-color: lightgreen; padding:2px 5px;'>Passed</span> &nbsp;|&nbsp; "
     "<span style='background-color: #FFFACD; padding:2px 5px;'>Currently Registered (CR)</span> &nbsp;|&nbsp; "
     "<span style='background-color: pink; padding:2px 5px;'>Not Completed/Failing</span></p>",
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 if "raw_df" not in st.session_state:
@@ -50,7 +48,7 @@ else:
         intensive_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_req_df = pd.concat([intensive_req_df, intensive_credits_df], axis=1)
 
-        # Precompute a simplified (primary-grade) version that preserves earned credits.
+        # Precompute a simplified (primary-grade) version that preserves credit info.
         primary_req_df = full_req_df.copy()
         for course in target_courses:
             primary_req_df[course] = primary_req_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
@@ -58,8 +56,9 @@ else:
         for course in intensive_courses:
             primary_int_df[course] = primary_int_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
 
-        # Toggle 1: Show All Grades vs. Simplified Primary-Grade view.
-        show_all_toggle = st.checkbox("Show All Grades", value=True, help="Display full grade details with earned credits or only the primary grade with credit.")
+        # Toggle 1: Show All Grades toggle.
+        show_all_toggle = st.checkbox("Show All Grades", value=True,
+            help="Toggle to display full grade details with earned credits or only the primary grade with its credit.")
         if show_all_toggle:
             displayed_req_df = full_req_df.copy()
             displayed_int_df = intensive_req_df.copy()
@@ -68,7 +67,8 @@ else:
             displayed_int_df = primary_int_df.copy()
 
         # Toggle 2: Show Completed/Not Completed Only.
-        show_complete_toggle = st.checkbox("Show Completed/Not Completed Only", value=False, help="Display 'c' for passed courses and blank for courses that did not earn credit.")
+        show_complete_toggle = st.checkbox("Show Completed/Not Completed Only", value=False,
+            help="Display 'c' for passed courses and blank for courses that did not earn credit.")
         if show_complete_toggle:
             def collapse_pass_fail(val):
                 if not isinstance(val, str):
@@ -96,17 +96,17 @@ else:
 
         # ASSIGN COURSES SECTION
         st.subheader("Assign Courses")
-        # (Instructional text was removed per your request.)
-
-        # Layout: Search bar first.
+        # Remove the previous instructional text.
+        # Layout: Show the search bar at the top.
         search_student = st.text_input("Search by Student ID or Name", help="Filter assignments by student or course")
-        # Then, the extra courses table.
-        st.dataframe(extra_courses_df, use_container_width=True)
-        # Then, three buttons on one horizontal row.
+        # Now, display the extra courses table as an interactive editor.
+        edited_extra_courses_df = st.data_editor(extra_courses_df, num_rows="dynamic", use_container_width=True, key="assignments_editor")
+        
+        # Then, place three buttons on one horizontal line.
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("Save Assignments", help="Save updated assignments to Google Drive"):
-                errors, updated_assignments = validate_assignments(extra_courses_df, per_student_assignments)
+                errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
                 if errors:
                     st.error("Please resolve assignment errors before saving:")
                     for error in errors:
@@ -122,11 +122,10 @@ else:
                 st.experimental_rerun()
         with col3:
             if st.button("Download Processed Report", help="Download the final report", key="download_btn"):
-                # We will trigger the download via the link below.
+                # The download link is rendered below.
                 pass
-        
+
         # Render the download button as a custom-styled link.
-        # First, make sure the file (in st.session_state["output"]) is base64-encoded.
         if "output" in st.session_state and st.session_state["output"]:
             data = st.session_state["output"]
             if isinstance(data, bytes):
@@ -144,19 +143,16 @@ else:
                     Download Processed Report
                 </a>
             </div>
-            """, 
+            """,
             unsafe_allow_html=True
         )
-
-        # (Plotly graph section removed per your request.)
 
         # At the very bottom, add a full-width horizontal bar with developer attribution.
         st.markdown("<hr style='border: none; height: 2px; background-color: #aaa;'/>", unsafe_allow_html=True)
         st.markdown("<div style='text-align: center; font-size: 14px;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)
 
-        # Generate and store the report output if not already done.
+        # Generate and store the report output.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = save_report_with_formatting(displayed_req_df, displayed_int_df, timestamp)
         st.session_state["output"] = output.getvalue()
-        from logging_utils import log_action
         log_action(f"Report generated at {timestamp}")
