@@ -29,7 +29,7 @@ def read_progress_report(filepath):
                 df = transform_wide_format(df)
                 return df
         else:
-            st.error("Unsupported file format. Upload Excel or CSV.")
+            st.error("Unsupported file format. Please upload an Excel or CSV file.")
             return None
     except Exception as e:
         st.error(f"Error reading file: {e}")
@@ -76,7 +76,6 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
     df["Mapped Course"] = df["Course"].apply(lambda x: equivalent_courses_mapping.get(x, x))
-    
     if per_student_assignments:
         allowed_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -90,57 +89,54 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
                         return atype
             return mapped
         df["Mapped Course"] = df.apply(map_assignment, axis=1)
-    
     extra_courses_df = df[
         (~df["Mapped Course"].isin(target_courses.keys())) &
         (~df["Mapped Course"].isin(intensive_courses.keys()))
     ]
     target_df = df[df["Mapped Course"].isin(target_courses.keys())]
     intensive_df = df[df["Mapped Course"].isin(intensive_courses.keys())]
-    
     pivot_df = target_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
         values="Grade",
         aggfunc=lambda x: ", ".join(map(str, filter(pd.notna, x)))
     ).reset_index()
-    
     intensive_pivot_df = intensive_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
         values="Grade",
         aggfunc=lambda x: ", ".join(map(str, filter(pd.notna, x)))
     ).reset_index()
-    
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
         pivot_df[course] = pivot_df[course].apply(lambda grade: determine_course_value(grade, course, target_courses))
-    
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
             intensive_pivot_df[course] = None
         intensive_pivot_df[course] = intensive_pivot_df[course].apply(lambda grade: determine_course_value(grade, course, intensive_courses))
-    
     result_df = pivot_df[["ID", "NAME"] + list(target_courses.keys())]
     intensive_result_df = intensive_pivot_df[["ID", "NAME"] + list(intensive_courses.keys())]
-    
     if per_student_assignments:
         assigned = []
         for sid, assigns in per_student_assignments.items():
             for atype, course in assigns.items():
                 assigned.append((sid, course))
         extra_courses_df = extra_courses_df[~extra_courses_df.apply(lambda row: (str(row["ID"]), row["Course"]) in assigned, axis=1)]
-    
     extra_courses_list = sorted(extra_courses_df["Course"].unique())
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict):
     """
-    Processes a course grade.
-      - For courses with nonzero credits, if any token in the student's grade is in the course’s PassingGrades list,
-        returns "grade tokens | {credits}". Otherwise, returns "grade tokens | 0".
-      - For 0-credit courses, returns "grade tokens | PASS" if passed, or "grade tokens | FAIL" if not.
+    Processes a course grade using the configuration data.
+    
+    For courses with nonzero credits:
+      - If any of the student's grade tokens (split from the grade string) is in the course’s PassingGrades list,
+        returns "grade tokens | {credits}".
+      - Otherwise, returns "grade tokens | 0".
+    For 0‑credit courses:
+      - Returns "grade tokens | PASS" if passed,
+      - and "grade tokens | FAIL" if not passed.
     """
     info = courses_dict[course]
     credits = info["Credits"]
@@ -184,7 +180,8 @@ def calculate_credits(row, courses_dict):
                             remaining += credit
                     except ValueError:
                         if right.upper() == "PASS":
-                            completed += 0  # Pass indicator for 0-credit courses
+                            # For 0-credit courses, passed but no credits to add
+                            pass
                         else:
                             remaining += credit
                 else:

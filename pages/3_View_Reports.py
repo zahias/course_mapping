@@ -22,7 +22,7 @@ st.markdown("---")
 if st.button("Reload Equivalent Courses", help="Download the latest equivalent courses mapping from Google Drive"):
     try:
         creds = authenticate_google_drive()
-        service = build('drive', 'v3', credentials=creds)
+        service = build("drive", "v3", credentials=creds)
         file_id = search_file(service, "equivalent_courses.csv")
         if file_id:
             download_file(service, file_id, "equivalent_courses.csv")
@@ -35,7 +35,7 @@ if st.button("Reload Equivalent Courses", help="Download the latest equivalent c
 if st.button("Reload Courses Configuration", help="Reload courses configuration from Google Drive"):
     try:
         creds = authenticate_google_drive()
-        service = build('drive', 'v3', credentials=creds)
+        service = build("drive", "v3", credentials=creds)
         file_id = search_file(service, "courses_config.csv")
         if file_id:
             download_file(service, file_id, "courses_config.csv")
@@ -45,12 +45,12 @@ if st.button("Reload Courses Configuration", help="Reload courses configuration 
     except Exception as e:
         st.error(f"Error reloading courses configuration: {e}")
 
-if 'raw_df' not in st.session_state:
+if "raw_df" not in st.session_state:
     st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
 else:
-    df = st.session_state['raw_df']
-    target_courses = st.session_state.get('target_courses')
-    intensive_courses = st.session_state.get('intensive_courses')
+    df = st.session_state["raw_df"]
+    target_courses = st.session_state.get("target_courses")
+    intensive_courses = st.session_state.get("intensive_courses")
     if target_courses is None or intensive_courses is None:
         st.warning("Courses not defined yet. Go to 'Customize Courses'.")
     else:
@@ -60,16 +60,11 @@ else:
             eq_df = pd.read_csv("equivalent_courses.csv")
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
         
-        # Process the report to get the full (detailed) view
+        # Process report to get full detailed view
         full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
-            df,
-            target_courses,
-            intensive_courses,
-            per_student_assignments,
-            equivalent_courses_mapping
+            df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
         )
-        
-        # Precompute the "primary grade" version by converting each cell using extract_primary_grade_from_full_value.
+        # Precompute a version with primary grade extracted
         primary_req_df = full_req_df.copy()
         for course in target_courses:
             primary_req_df[course] = primary_req_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
@@ -77,7 +72,7 @@ else:
         for course in intensive_courses:
             primary_int_df[course] = primary_int_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
         
-        # Toggle: If "Show All Grades" is checked, display full details; otherwise, display primary grade.
+        # Toggle to choose display version
         show_all_toggle = st.checkbox("Show All Grades", value=True, help="Toggle to display all recorded grade tokens vs. only the primary grade.")
         if show_all_toggle:
             displayed_req_df = full_req_df.copy()
@@ -86,27 +81,23 @@ else:
             displayed_req_df = primary_req_df.copy()
             displayed_int_df = primary_int_df.copy()
         
-        # Calculate credits (always based on full_req_df)
+        # Calculate credits (using full pivot data)
         credits_df = full_req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
         full_req_df = pd.concat([full_req_df, credits_df], axis=1)
         intensive_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
         intensive_req_df = pd.concat([intensive_req_df, intensive_credits_df], axis=1)
         
         allowed_assignment_types = get_allowed_assignment_types()
-        
         from ui_components import display_dataframes
         display_dataframes(
             displayed_req_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_courses.keys())]),
             displayed_int_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
-            extra_courses_df,
-            df
+            extra_courses_df, df
         )
-        
         st.markdown("**Color Legend:**")
         st.markdown("- Light Green: Passed courses")
         st.markdown("- Light Yellow: Currently Registered (CR) courses")
         st.markdown("- Pink: Not Completed/Failing courses")
-        
         st.subheader("Assign Courses")
         st.markdown("Select one course per student for each assignment type from extra courses.")
         
