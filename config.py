@@ -15,7 +15,6 @@ def get_allowed_assignment_types():
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
     Checks if the given grade is in the comma-separated list of passing grades.
-    For example, if passing_grades_str is "A+,A,A-", then returns True if grade (trimmed and uppercased) is in that list.
     """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(",")]
@@ -23,19 +22,18 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# Alias for backward compatibility.
+# For backward compatibility.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Returns a CSS style string for cell background based on the processed cell value.
+    Returns a CSS style string for cell background.
     
-    Logic:
-      - If value starts with "CR", return light yellow (#FFFACD).
-      - Otherwise, split the value by the pipe ("|") and examine the right-hand side:
-          • If numeric and > 0, return light green; if numeric and 0, return pink.
-          • If nonnumeric (e.g. "PASS"/"FAIL"), "PASS" yields light green, "FAIL" yields pink.
-      - Fallback: if any grade token (from left of "|") exists in GRADE_ORDER, return light green; otherwise pink.
+    If the cell value starts with "CR" returns light yellow (#FFFACD).
+    Else, splits value by "|" and examines the right-hand side:
+      - If numeric and >0, returns light green; if 0 returns pink.
+      - If nonnumeric ("PASS"/"FAIL") returns light green for PASS and pink for FAIL.
+    Otherwise, falls back to light green if any token in the left-hand side is in GRADE_ORDER.
     """
     if not isinstance(value, str):
         return ""
@@ -60,10 +58,9 @@ def cell_color(value: str) -> str:
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    Given a full processed grade string (for example, "B+, A, C | 3" or "A, B | PASS"),
-    extracts the primary grade (the first grade found in GRADE_ORDER) and appends the credit part.
-    
-    Returns a string of the form "PrimaryGrade | Credit".
+    Given a full processed grade string (e.g. "B+, A, C | 3" or "A, B | PASS"),
+    extracts the primary grade (the first found in GRADE_ORDER) and appends the credit part.
+    Returns string "PrimaryGrade | Credit".
     """
     if not isinstance(value, str):
         return value
