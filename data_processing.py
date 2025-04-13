@@ -52,7 +52,7 @@ def transform_wide_format(df):
     df_melted["Grade"] = split_cols[2].str.strip().str.upper()
     sem_year_split = df_melted["Semester_Year"].str.split("-", expand=True)
     if sem_year_split.shape[1] < 2:
-        st.error("Semester-Year format not recognized. Expected e.g., FALL-2016.")
+        st.error("Semester-Year format not recognized. Expected e.g. FALL-2016.")
         return None
     df_melted["Semester"] = sem_year_split[0].str.strip().str.title()
     df_melted["Year"] = sem_year_split[1].str.strip()
@@ -128,14 +128,13 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
 
 def determine_course_value(grade, course, courses_dict):
     """
-    Processes a course grade using the course configuration.
-    
+    Processes a course grade.
     For courses with nonzero credits:
       - If any token in the student's grade (split by comma) is in the course’s PassingGrades list,
         returns "grade tokens | {credits}".
       - Otherwise, returns "grade tokens | 0".
     For 0-credit courses:
-      - Returns "grade tokens | PASS" if passed, and "grade tokens | FAIL" if not passed.
+      - Returns "grade tokens | PASS" if passed, and "grade tokens | FAIL" if not.
     """
     info = courses_dict[course]
     credits = info["Credits"]
@@ -179,7 +178,7 @@ def calculate_credits(row, courses_dict):
                             remaining += credit
                     except ValueError:
                         if right.upper() == "PASS":
-                            # For 0-credit courses: passed (but no credit to add)
+                            # 0-credit passed; no credit to add, but considered passed
                             pass
                         else:
                             remaining += credit
