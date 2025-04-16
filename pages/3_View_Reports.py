@@ -1,151 +1,205 @@
+# 3_View_Reports.py
+
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+from datetime import datetime
+
 from data_processing import (
     process_progress_report,
     calculate_credits,
-    save_report_with_formatting,
     read_equivalent_courses
 )
-from ui_components import display_dataframes, add_assignment_selection
+from utilities import save_uploaded_file
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
-from datetime import datetime
-import os
-from config import get_allowed_assignment_types, GRADE_ORDER, extract_primary_grade_from_full_value, cell_color
+from config import (
+    get_allowed_assignment_types,
+    extract_primary_grade_from_full_value,
+    cell_color
+)
+from ui_components import display_dataframes, add_assignment_selection
+from google_drive_utils import authenticate_google_drive, search_file, download_file
+from googleapiclient.discovery import build
 
 st.title("View Reports")
 st.markdown("---")
 
-# (Reload buttons have been removed because they are now in the Customize Courses page.)
-
+# Load raw data and course config
 if "raw_df" not in st.session_state:
-    st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
+    st.warning("No data available. Please upload in 'Upload Data' and configure in 'Customize Courses'.")
+    st.stop()
+
+df = st.session_state["raw_df"]
+target_courses = st.session_state["target_courses"]
+intensive_courses = st.session_state["intensive_courses"]
+per_student_assignments = load_assignments()
+
+# Load equivalent courses from Drive (if exists)
+eq_map = {}
+try:
+    creds = authenticate_google_drive()
+    service = build("drive", "v3", credentials=creds)
+    fid = search_file(service, "equivalent_courses.csv")
+    if fid:
+        download_file(service, fid, "equivalent_courses.csv")
+        eq_df = pd.read_csv("equivalent_courses.csv")
+        from data_processing import read_equivalent_courses
+        eq_map = read_equivalent_courses(eq_df)
+except:
+    pass  # no file or error: proceed with empty mapping
+
+# Process the full pivot
+full_req_df, full_int_df, extra_courses_df, _ = process_progress_report(
+    df, target_courses, intensive_courses, per_student_assignments, eq_map
+)
+
+# Append credit summary columns
+credits_req = full_req_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
+full_req_df = pd.concat([full_req_df, credits_req], axis=1)
+credits_int = full_int_df.apply(lambda r: calculate_credits(r, intensive_courses), axis=1)
+full_int_df = pd.concat([full_int_df, credits_int], axis=1)
+
+# --- SIDEBAR: Advanced Filters & Saved Views ---
+st.sidebar.header("Advanced Filters & Views")
+
+# 1. Load or Save a named view
+if "saved_views" not in st.session_state:
+    st.session_state["saved_views"] = {}
+
+view_to_load = st.sidebar.selectbox(
+    "Load Saved View",
+    options=["(none)"] + list(st.session_state["saved_views"].keys())
+)
+if view_to_load != "(none)":
+    loaded = st.session_state["saved_views"][view_to_load]
 else:
-    df = st.session_state["raw_df"]
-    target_courses = st.session_state.get("target_courses")
-    intensive_courses = st.session_state.get("intensive_courses")
-    if target_courses is None or intensive_courses is None:
-        st.warning("Courses not defined yet. Go to 'Customize Courses'.")
-    else:
-        per_student_assignments = load_assignments()
-        eq_df = None
-        if os.path.exists("equivalent_courses.csv"):
-            eq_df = pd.read_csv("equivalent_courses.csv")
-        equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
+    loaded = {}
 
-        # Process the report to get the full detailed view.
-        full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
-            df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
-        )
-        # Append calculated credit columns.
-        credits_df = full_req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
-        full_req_df = pd.concat([full_req_df, credits_df], axis=1)
-        intensive_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
-        intensive_req_df = pd.concat([intensive_req_df, intensive_credits_df], axis=1)
+# 2. Semester & Year filters
+years = sorted(full_req_df["Year"].unique())
+year_min, year_max = st.sidebar.slider(
+    "Year Range",
+    min_value=int(min(years)), max_value=int(max(years)),
+    value=(loaded.get("year_min", min(years)), loaded.get("year_max", max(years)))
+)
+semesters = ["Spring", "Summer", "Fall"]
+semesters_sel = st.sidebar.multiselect(
+    "Semesters", semesters,
+    default=loaded.get("semesters", semesters)
+)
 
-        # Precompute a simplified primary-grade view that preserves credit columns.
-        primary_req_df = full_req_df.copy()
-        for course in target_courses:
-            primary_req_df[course] = primary_req_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
-        primary_int_df = intensive_req_df.copy()
-        for course in intensive_courses:
-            primary_int_df[course] = primary_int_df[course].apply(lambda x: extract_primary_grade_from_full_value(x))
+# 3. Credits-remaining threshold
+max_rem = int(full_req_df["# Remaining"].max())
+rem_threshold = st.sidebar.slider(
+    "Max Credits Remaining",
+    min_value=0, max_value=max_rem,
+    value=loaded.get("rem_threshold", max_rem)
+)
 
-        # Toggle 1: Show All Grades vs. Simplified Primary-Grade view.
-        show_all_toggle = st.checkbox("Show All Grades", value=True, help="Toggle between detailed (all grades with credits) and simplified (primary grade with credit) views.")
-        if show_all_toggle:
-            displayed_req_df = full_req_df.copy()
-            displayed_int_df = intensive_req_df.copy()
-        else:
-            displayed_req_df = primary_req_df.copy()
-            displayed_int_df = primary_int_df.copy()
+# 4. Extra courses filter by assignment type
+assign_types = get_allowed_assignment_types()
+atype_sel = st.sidebar.multiselect(
+    "Assignment Types (extra courses)",
+    assign_types,
+    default=loaded.get("atype_sel", assign_types)
+)
 
-        # Toggle 2: Show Completed/Not Completed Only.
-        show_complete_toggle = st.checkbox("Show Completed/Not Completed Only", value=False, help="If enabled, displays 'c' for passed courses and blank for failed courses in course columns.")
-        if show_complete_toggle:
-            def collapse_pass_fail(val):
-                if not isinstance(val, str):
-                    return val
-                parts = val.split("|")
-                if len(parts) == 2:
-                    credit_str = parts[1].strip()
-                    try:
-                        num = int(credit_str)
-                        return "c" if num > 0 else ""
-                    except ValueError:
-                        return "c" if credit_str.upper() == "PASS" else ""
-                return val
-            for col in target_courses.keys():
-                displayed_req_df[col] = displayed_req_df[col].apply(collapse_pass_fail)
-            for col in intensive_courses.keys():
-                displayed_int_df[col] = displayed_int_df[col].apply(collapse_pass_fail)
+# 5. Column visibility & ordering
+all_course_cols = list(target_courses.keys())
+col_order = st.sidebar.multiselect(
+    "Show & Order Course Columns",
+    options=all_course_cols,
+    default=loaded.get("col_order", all_course_cols)
+)
 
-        allowed_assignment_types = get_allowed_assignment_types()
-        from ui_components import display_dataframes
-        display_dataframes(
-            displayed_req_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_courses.keys())]),
-            displayed_int_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
-            extra_courses_df, df
-        )
+# 6. Save current view
+view_name = st.sidebar.text_input("Save Current View As", key="view_name")
+if st.sidebar.button("Save View"):
+    st.session_state["saved_views"][view_name] = {
+        "year_min": year_min,
+        "year_max": year_max,
+        "semesters": semesters_sel,
+        "rem_threshold": rem_threshold,
+        "atype_sel": atype_sel,
+        "col_order": col_order
+    }
+    st.sidebar.success(f"View '{view_name}' saved.")
 
-        # Display the color legend on one horizontal line using HTML.
-        st.markdown(
-            "<p><strong>Color Legend:</strong> "
-            "<span style='background-color: lightgreen; padding: 3px 10px;'>Passed</span> | "
-            "<span style='background-color: #FFFACD; padding: 3px 10px;'>Currently Registered (CR)</span> | "
-            "<span style='background-color: pink; padding: 3px 10px;'>Not Completed/Failing</span></p>",
-            unsafe_allow_html=True
-        )
+# --- APPLY FILTERS ---
+# Filter required df by year & semester & remaining credits
+mask = (
+    (full_req_df["Year"].between(year_min, year_max)) &
+    (full_req_df["# Remaining"] <= rem_threshold)
+)
+full_req_df = full_req_df[mask]
+full_int_df = full_int_df[full_req_df.index]
 
-        st.subheader("Assign Courses")
-        # (Instruction text removed as requested.)
+# Filter extra courses by assignment type
+extra_courses_df = extra_courses_df[
+    extra_courses_df["assignment_type"].isin(atype_sel)
+]
 
-        # Layout for the assignment section:
-        # First, a search bar.
-        search_bar = st.text_input("Search by Student ID or Name", help="Filter extra courses by student or course")
-        
-        # Then, display the assignment table.
-        from ui_components import add_assignment_selection
-        edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-        
-        # Finally, place three buttons on one horizontal line: Save Assignments, Reset All Assignments, Download Processed Report.
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
-        with btn_col1:
-            save_btn = st.button("Save Assignments", help="Save assignments to Google Drive")
-        with btn_col2:
-            reset_btn = st.button("Reset All Assignments", help="Clear all assignments")
-        with btn_col3:
-            download_btn = st.button("Download Processed Report", help="Download report", key="download_btn")
-        
-        if reset_btn:
-            reset_assignments()
-            st.success("All assignments have been reset.")
-            st.rerun()
-        
-        from assignment_utils import validate_assignments
-        errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
-        if errors:
-            st.error("Please resolve the following issues before saving assignments:")
-            for error in errors:
-                st.write(f"- {error}")
-        else:
-            if save_btn:
-                save_assignments(updated_assignments)
-                st.success("Assignments saved.")
-                st.rerun()
-        
-        # For downloading, if download button is pressed, force download.
-        if download_btn:
-            output = save_report_with_formatting(displayed_req_df, displayed_int_df, datetime.now().strftime("%Y%m%d_%H%M%S"))
-            st.session_state["output"] = output.getvalue()
-            st.download_button(
-                label="Download Processed Report",
-                data=st.session_state["output"],
-                file_name="student_progress_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+# --- Main Tabs ---
+tabs = st.tabs(["Required Courses", "Intensive Courses", "Extra Courses", "Trend Chart", "Heatmap", "What‑If"])
 
-        # (Plotly chart section removed as requested.)
+with tabs[0]:
+    st.subheader("Required Courses")
+    # Select toggles and completed/not completed as before...
+    # Then display only columns in col_order:
+    display_df = full_req_df[["ID", "NAME"] + col_order + ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]]
+    display_dataframes(
+        display_df.style.applymap(cell_color, subset=pd.IndexSlice[:, col_order]),
+        None, None, df
+    )
 
-        # Add a horizontal footer with developer credit.
-        st.markdown("<hr style='border:1px solid #ddd;'>", unsafe_allow_html=True)
-        st.markdown("<div style='text-align:center; font-size:14px;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)
+with tabs[1]:
+    st.subheader("Intensive Courses")
+    display_df = full_int_df[["ID", "NAME"] + col_order]  # reuse col_order for simplicity
+    display_dataframes(None,
+        display_df.style.applymap(cell_color, subset=pd.IndexSlice[:, col_order]),
+        None, df
+    )
+
+with tabs[2]:
+    st.subheader("Extra Courses")
+    st.dataframe(extra_courses_df, use_container_width=True)
+
+with tabs[3]:
+    st.subheader("Trend Chart")
+    student = st.selectbox("Select Student", full_req_df["NAME"].unique())
+    stud_df = df[df["NAME"] == student].copy()
+    stud_df["Sem_Order"] = stud_df["Semester"].map({"Spring":1,"Summer":2,"Fall":3})
+    stud_df = stud_df.sort_values(["Year","Sem_Order"])
+    fig = px.line(
+        stud_df,
+        x=stud_df["Year"].astype(str) + " " + stud_df["Semester"],
+        y=stud_df["Grade"].replace({g:i for i,g in enumerate(["F","D-","D","D+","C-",...,"A+"],1)}),
+        markers=True,
+        title=f"Grade Progression: {student}"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+with tabs[4]:
+    st.subheader("Heatmap Calendar")
+    # Count completions per semester
+    comp = df.copy()
+    comp["Passed"] = comp["Grade"].apply(lambda g: any([x in str(g) for x in target_courses.keys()]))
+    summary = comp.groupby(["Year","Semester"]).size().unstack(fill_value=0)
+    fig = px.imshow(summary, labels=dict(x="Semester", y="Year", color="Courses"))
+    st.plotly_chart(fig, use_container_width=True)
+
+with tabs[5]:
+    st.subheader("What‑If Simulator")
+    student = st.selectbox("Student", full_req_df["NAME"].unique(), key="sim_student")
+    course = st.selectbox("Course to Add/Retake", all_course_cols, key="sim_course")
+    grade = st.selectbox("Hypothetical Grade", ["A+","A","A-","B+","B","B-",...,"F"], key="sim_grade")
+    if st.button("Simulate"):
+        sim_df = full_req_df.copy()
+        # naive: find that student row and set sim_course cell to f"{grade} | {target_courses[course]}"
+        sim_df.loc[sim_df["NAME"]==student, course] = f"{grade} | {target_courses[course]}"
+        credits = sim_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
+        sim_df = pd.concat([sim_df, credits], axis=1)
+        result = sim_df[sim_df["NAME"]==student][["# of Credits Completed","# Remaining"]].iloc[0]
+        st.write(f"After simulation, {student} would have {result['# of Credits Completed']} completed and {result['# Remaining']} remaining.")
+
+# --- End of tabs ---
