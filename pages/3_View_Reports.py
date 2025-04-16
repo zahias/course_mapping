@@ -1,4 +1,4 @@
-# 3_View_Reports.py
+# pages/3_View_Reports.py
 
 import streamlit as st
 import pandas as pd
@@ -63,7 +63,7 @@ semesters_sel = st.sidebar.multiselect(
     default=loaded.get("semesters", semesters)
 )
 
-# Extra courses filter by assignment type
+# Extra courses filter by assignment type (we’ll build boolean columns)
 assign_types = get_allowed_assignment_types()
 atype_sel = st.sidebar.multiselect(
     "Assignment Types (Extra Courses)",
@@ -130,13 +130,28 @@ rem_threshold = st.sidebar.slider(
 )
 full_req_df = full_req_df[full_req_df["# Remaining"] <= rem_threshold]
 
-# Note: **We do NOT re-align `full_int_df`** to `full_req_df.index` anymore.
-# Intensive courses remain filtered only by Year & Semester.
+# === Extra Courses: Add assignment‐type booleans and then filter ===
+# Add a boolean column for each allowed assignment type
+for atype in assign_types:
+    extra_courses_df[atype] = False
 
-# Filter extra courses by selected assignment types
-extra_courses_df = extra_courses_df[
-    extra_courses_df["assignment_type"].isin(atype_sel)
-]
+# Mark existing assignments
+for idx, row in extra_courses_df.iterrows():
+    sid = str(row["ID"])
+    course = row["Course"]
+    if sid in per_student_assignments:
+        assigns = per_student_assignments[sid]
+        for atype in assign_types:
+            if assigns.get(atype) == course:
+                extra_courses_df.at[idx, atype] = True
+
+# Filter by the selected assignment types (if any)
+if atype_sel:
+    mask = pd.Series(False, index=extra_courses_df.index)
+    for atype in atype_sel:
+        if atype in extra_courses_df.columns:
+            mask |= extra_courses_df[atype]
+    extra_courses_df = extra_courses_df[mask]
 
 # === MAIN TABS ===
 tabs = st.tabs([
@@ -151,7 +166,7 @@ tabs = st.tabs([
 with tabs[0]:
     st.subheader("Required Courses")
     display_df = full_req_df[
-        ["ID", "NAME"] + col_order + 
+        ["ID", "NAME"] + col_order +
         ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]
     ]
     display_dataframes(
