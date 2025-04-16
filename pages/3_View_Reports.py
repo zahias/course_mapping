@@ -10,7 +10,6 @@ from data_processing import (
     calculate_credits,
     read_equivalent_courses
 )
-from utilities import save_uploaded_file
 from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
 from config import (
     get_allowed_assignment_types,
@@ -24,45 +23,20 @@ from googleapiclient.discovery import build
 st.title("View Reports")
 st.markdown("---")
 
-# Load raw data and course config
+# Ensure raw data exists
 if "raw_df" not in st.session_state:
-    st.warning("No data available. Please upload in 'Upload Data' and configure in 'Customize Courses'.")
+    st.warning("No data available. Please upload data in 'Upload Data' and configure in 'Customize Courses'.")
     st.stop()
 
-df = st.session_state["raw_df"]
+raw_df = st.session_state["raw_df"].copy()
 target_courses = st.session_state["target_courses"]
 intensive_courses = st.session_state["intensive_courses"]
 per_student_assignments = load_assignments()
 
-# Load equivalent courses from Drive (if exists)
-eq_map = {}
-try:
-    creds = authenticate_google_drive()
-    service = build("drive", "v3", credentials=creds)
-    fid = search_file(service, "equivalent_courses.csv")
-    if fid:
-        download_file(service, fid, "equivalent_courses.csv")
-        eq_df = pd.read_csv("equivalent_courses.csv")
-        from data_processing import read_equivalent_courses
-        eq_map = read_equivalent_courses(eq_df)
-except:
-    pass  # no file or error: proceed with empty mapping
-
-# Process the full pivot
-full_req_df, full_int_df, extra_courses_df, _ = process_progress_report(
-    df, target_courses, intensive_courses, per_student_assignments, eq_map
-)
-
-# Append credit summary columns
-credits_req = full_req_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
-full_req_df = pd.concat([full_req_df, credits_req], axis=1)
-credits_int = full_int_df.apply(lambda r: calculate_credits(r, intensive_courses), axis=1)
-full_int_df = pd.concat([full_int_df, credits_int], axis=1)
-
-# --- SIDEBAR: Advanced Filters & Saved Views ---
+# Sidebar: Advanced Filters & Saved Views
 st.sidebar.header("Advanced Filters & Views")
 
-# 1. Load or Save a named view
+# Load or Save named views
 if "saved_views" not in st.session_state:
     st.session_state["saved_views"] = {}
 
@@ -75,8 +49,8 @@ if view_to_load != "(none)":
 else:
     loaded = {}
 
-# 2. Semester & Year filters
-years = sorted(full_req_df["Year"].unique())
+# Year & Semester filters from raw_df
+years = sorted(raw_df["Year"].astype(int).unique())
 year_min, year_max = st.sidebar.slider(
     "Year Range",
     min_value=int(min(years)), max_value=int(max(years)),
@@ -84,80 +58,118 @@ year_min, year_max = st.sidebar.slider(
 )
 semesters = ["Spring", "Summer", "Fall"]
 semesters_sel = st.sidebar.multiselect(
-    "Semesters", semesters,
+    "Semesters",
+    semesters,
     default=loaded.get("semesters", semesters)
 )
 
-# 3. Credits-remaining threshold
-max_rem = int(full_req_df["# Remaining"].max())
-rem_threshold = st.sidebar.slider(
-    "Max Credits Remaining",
-    min_value=0, max_value=max_rem,
-    value=loaded.get("rem_threshold", max_rem)
-)
+# Credits‐remaining threshold will apply after pivot
+max_rem = None  # placeholder
 
-# 4. Extra courses filter by assignment type
+# Extra courses filter by assignment type
 assign_types = get_allowed_assignment_types()
 atype_sel = st.sidebar.multiselect(
-    "Assignment Types (extra courses)",
+    "Assignment Types (Extra Courses)",
     assign_types,
     default=loaded.get("atype_sel", assign_types)
 )
 
-# 5. Column visibility & ordering
+# Column visibility & ordering
 all_course_cols = list(target_courses.keys())
 col_order = st.sidebar.multiselect(
-    "Show & Order Course Columns",
+    "Show & Order Required Course Columns",
     options=all_course_cols,
     default=loaded.get("col_order", all_course_cols)
 )
 
-# 6. Save current view
+# Save current view
 view_name = st.sidebar.text_input("Save Current View As", key="view_name")
 if st.sidebar.button("Save View"):
     st.session_state["saved_views"][view_name] = {
         "year_min": year_min,
         "year_max": year_max,
         "semesters": semesters_sel,
-        "rem_threshold": rem_threshold,
         "atype_sel": atype_sel,
         "col_order": col_order
     }
     st.sidebar.success(f"View '{view_name}' saved.")
 
-# --- APPLY FILTERS ---
-# Filter required df by year & semester & remaining credits
-mask = (
-    (full_req_df["Year"].between(year_min, year_max)) &
-    (full_req_df["# Remaining"] <= rem_threshold)
-)
-full_req_df = full_req_df[mask]
-full_int_df = full_int_df[full_req_df.index]
+# --- APPLY RAW FILTERS ---
+filtered_df = raw_df[
+    raw_df["Year"].astype(int).between(year_min, year_max) &
+    raw_df["Semester"].isin(semesters_sel)
+]
 
-# Filter extra courses by assignment type
+# Load equivalent courses mapping
+eq_map = {}
+try:
+    creds = authenticate_google_drive()
+    service = build("drive", "v3", credentials=creds)
+    fid = search_file(service, "equivalent_courses.csv")
+    if fid:
+        download_file(service, fid, "equivalent_courses.csv")
+        eq_df = pd.read_csv("equivalent_courses.csv")
+        eq_map = read_equivalent_courses(eq_df)
+except:
+    pass
+
+# Process with filtered raw data
+full_req_df, full_int_df, extra_courses_df, _ = process_progress_report(
+    filtered_df, target_courses, intensive_courses, per_student_assignments, eq_map
+)
+
+# Append credit summaries
+credits_req = full_req_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
+full_req_df = pd.concat([full_req_df, credits_req], axis=1)
+credits_int = full_int_df.apply(lambda r: calculate_credits(r, intensive_courses), axis=1)
+full_int_df = pd.concat([full_int_df, credits_int], axis=1)
+
+# Now that # Remaining exists, define the rem filter
+max_rem = int(full_req_df["# Remaining"].max())
+rem_threshold = st.sidebar.slider(
+    "Max Credits Remaining",
+    min_value=0, max_value=max_rem,
+    value=loaded.get("rem_threshold", max_rem)
+)
+# Apply remaining‐credits filter
+full_req_df = full_req_df[full_req_df["# Remaining"] <= rem_threshold]
+# Mirror filter on full_int_df by index
+full_int_df = full_int_df.loc[full_req_df.index]
+
+# Filter extra courses
 extra_courses_df = extra_courses_df[
     extra_courses_df["assignment_type"].isin(atype_sel)
 ]
 
-# --- Main Tabs ---
-tabs = st.tabs(["Required Courses", "Intensive Courses", "Extra Courses", "Trend Chart", "Heatmap", "What‑If"])
+# --- MAIN TAB LAYOUT ---
+tabs = st.tabs([
+    "Required Courses",
+    "Intensive Courses",
+    "Extra Courses",
+    "Trend Chart",
+    "Heatmap Calendar",
+    "What‑If Simulator"
+])
 
 with tabs[0]:
     st.subheader("Required Courses")
-    # Select toggles and completed/not completed as before...
-    # Then display only columns in col_order:
+    # Toggles for Show All / Completed‐only can remain here if desired...
     display_df = full_req_df[["ID", "NAME"] + col_order + ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]]
     display_dataframes(
         display_df.style.applymap(cell_color, subset=pd.IndexSlice[:, col_order]),
-        None, None, df
+        None,
+        None,
+        filtered_df  # passing original filtered raw for context
     )
 
 with tabs[1]:
     st.subheader("Intensive Courses")
-    display_df = full_int_df[["ID", "NAME"] + col_order]  # reuse col_order for simplicity
-    display_dataframes(None,
-        display_df.style.applymap(cell_color, subset=pd.IndexSlice[:, col_order]),
-        None, df
+    display_df = full_int_df[["ID", "NAME"] + list(intensive_courses.keys()) + ["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]]
+    display_dataframes(
+        None,
+        display_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
+        None,
+        filtered_df
     )
 
 with tabs[2]:
@@ -166,40 +178,58 @@ with tabs[2]:
 
 with tabs[3]:
     st.subheader("Trend Chart")
-    student = st.selectbox("Select Student", full_req_df["NAME"].unique())
-    stud_df = df[df["NAME"] == student].copy()
-    stud_df["Sem_Order"] = stud_df["Semester"].map({"Spring":1,"Summer":2,"Fall":3})
-    stud_df = stud_df.sort_values(["Year","Sem_Order"])
+    student = st.selectbox("Select Student", filtered_df["NAME"].unique())
+    stud = filtered_df[filtered_df["NAME"] == student].copy()
+    stud["Sem_Order"] = stud["Semester"].map({"Spring":1,"Summer":2,"Fall":3})
+    stud = stud.sort_values(["Year","Sem_Order"])
+    # Map grades to numeric for y-axis
+    grade_map = {g:i for i,g in enumerate(
+        ["F","D-","D","D+","C-","C","C+","B-","B","B+","A-","A","A+"], 1
+    )}
+    stud["Grade_Num"] = stud["Grade"].map(lambda g: grade_map.get(g, None))
     fig = px.line(
-        stud_df,
-        x=stud_df["Year"].astype(str) + " " + stud_df["Semester"],
-        y=stud_df["Grade"].replace({g:i for i,g in enumerate(["F","D-","D","D+","C-",...,"A+"],1)}),
+        stud,
+        x=stud["Year"].astype(str) + " " + stud["Semester"],
+        y="Grade_Num",
         markers=True,
-        title=f"Grade Progression: {student}"
+        title=f"Grade Progression for {student}"
+    )
+    fig.update_yaxes(
+        tickmode="array",
+        tickvals=list(grade_map.values()),
+        ticktext=list(grade_map.keys())
     )
     st.plotly_chart(fig, use_container_width=True)
 
 with tabs[4]:
     st.subheader("Heatmap Calendar")
-    # Count completions per semester
-    comp = df.copy()
-    comp["Passed"] = comp["Grade"].apply(lambda g: any([x in str(g) for x in target_courses.keys()]))
-    summary = comp.groupby(["Year","Semester"]).size().unstack(fill_value=0)
-    fig = px.imshow(summary, labels=dict(x="Semester", y="Year", color="Courses"))
+    # Count passes per semester
+    heat = filtered_df.copy()
+    # Mark pass if grade is in a passing list for that course
+    def is_pass(r):
+        pg = target_courses.get(r["Course"], {}).get("PassingGrades","")
+        return r["Grade"] in [g.strip() for g in pg.split(",")]
+    heat["Passed"] = heat.apply(is_pass, axis=1)
+    summary = heat.groupby(["Year","Semester"])["Passed"].sum().unstack().fillna(0)
+    fig = px.imshow(
+        summary,
+        labels=dict(x="Semester", y="Year", color="Courses Passed"),
+        title="Courses Passed Heatmap"
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 with tabs[5]:
     st.subheader("What‑If Simulator")
-    student = st.selectbox("Student", full_req_df["NAME"].unique(), key="sim_student")
-    course = st.selectbox("Course to Add/Retake", all_course_cols, key="sim_course")
-    grade = st.selectbox("Hypothetical Grade", ["A+","A","A-","B+","B","B-",...,"F"], key="sim_grade")
+    student = st.selectbox("Student", filtered_df["NAME"].unique(), key="sim_stud")
+    course = st.selectbox("Course to Add/Retake", list(target_courses.keys()), key="sim_course")
+    grade = st.selectbox("Hypothetical Grade", list(grade_map.keys()), key="sim_grade")
     if st.button("Simulate"):
         sim_df = full_req_df.copy()
-        # naive: find that student row and set sim_course cell to f"{grade} | {target_courses[course]}"
-        sim_df.loc[sim_df["NAME"]==student, course] = f"{grade} | {target_courses[course]}"
-        credits = sim_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
-        sim_df = pd.concat([sim_df, credits], axis=1)
-        result = sim_df[sim_df["NAME"]==student][["# of Credits Completed","# Remaining"]].iloc[0]
-        st.write(f"After simulation, {student} would have {result['# of Credits Completed']} completed and {result['# Remaining']} remaining.")
+        sim_df.loc[sim_df["NAME"] == student, course] = f"{grade} | {target_courses[course]['Credits']}"
+        sim_credits = sim_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
+        sim_df = pd.concat([sim_df, sim_credits], axis=1)
+        res = sim_df[sim_df["NAME"] == student].iloc[0]
+        st.write(f"After simulation, {student} would have **{res['# of Credits Completed']}** completed and **{res['# Remaining']}** remaining.")
 
-# --- End of tabs ---
+# (Assignment section and Download button preserved below tabs if needed...)
+
