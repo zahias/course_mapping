@@ -5,9 +5,8 @@ import pandas as pd
 from datetime import datetime
 
 from utilities import save_uploaded_file
-from data_processing import process_progress_report, calculate_credits
+from data_processing import read_progress_report, process_progress_report, calculate_credits
 from assignment_utils import load_assignments
-from config import get_default_grading_system
 from google_drive_utils import authenticate_google_drive, search_file, download_file
 from logging_utils import setup_logging
 
@@ -31,7 +30,7 @@ if (
     intensive = st.session_state['intensive_courses']
     per_student_assignments = load_assignments()
 
-    # We won't apply any equivalent‐course mapping here (empty dict).
+    # No equivalent mapping here
     full_req_df, _, _, _ = process_progress_report(
         df, target, intensive, per_student_assignments, {}
     )
@@ -42,10 +41,10 @@ if (
 
     # Compute metrics
     total_students = full_req_df.shape[0]
-    total_completed = full_req_df['# of Credits Completed'].sum()
-    total_remaining = full_req_df['# Remaining'].sum()
+    total_completed = int(full_req_df['# of Credits Completed'].sum())
+    total_remaining = int(full_req_df['# Remaining'].sum())
 
-    # Identify at-risk (<50% completed)
+    # Identify at‑risk (<50% completed)
     pct = full_req_df['# of Credits Completed'] / full_req_df['Total Credits']
     at_risk = full_req_df.loc[pct < 0.5, 'NAME'].tolist()
 
@@ -76,7 +75,6 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     filepath = save_uploaded_file(uploaded_file)
-    from data_processing import read_progress_report
     df = read_progress_report(filepath)
     if df is not None:
         st.session_state['raw_df'] = df
