@@ -93,14 +93,8 @@ if show_collapse:
     for col in intensive_courses:
         displayed_int_df[col] = displayed_int_df[col].apply(collapse)
 
-# Display tables
-allowed_types = get_allowed_assignment_types()
-display_dataframes(
-    displayed_req_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_courses.keys())]),
-    displayed_int_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
-    extra_courses_df,
-    df
-)
+# Display tables (pass DataFrames, not Stylers)
+display_dataframes(displayed_req_df, displayed_int_df, extra_courses_df, df)
 
 # Color legend
 st.markdown(
@@ -139,10 +133,9 @@ elif save_btn:
 
 if download_btn:
     out = save_report_with_formatting(displayed_req_df, displayed_int_df, datetime.now().strftime("%Y%m%d_%H%M%S"))
-    data = out.getvalue()
     st.download_button(
         "Download Excel",
-        data=data,
+        data=out.getvalue(),
         file_name="student_progress_report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
