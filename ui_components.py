@@ -1,112 +1,70 @@
+# ui_components.py
+
 import streamlit as st
-import re
-import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode, ColumnsAutoSizeMode
 
-def display_dataframes(styled_req_df, styled_int_df, extra_courses_df, raw_df):
+def display_dataframes(required_df, intensive_df, extra_courses_df, raw_df):
+    st.subheader("Required Courses Progress Report")
+    _show_aggrid(required_df)
+
+    st.subheader("Intensive Courses Progress Report")
+    _show_aggrid(intensive_df)
+
+    st.subheader("Extra Courses Detailed View")
+    st.dataframe(extra_courses_df)  # leave editable assignment logic intact
+
+def _show_aggrid(df):
     """
-    Displays the Required, Intensive, and Extra Courses dataframes using AgGrid for advanced UI:
-    - Freezes ID/NAME columns
-    - Groups related courses by prefix (e.g., PBHL)
-    - Enables multi-criteria filters and sorting
+    Renders a pandas DataFrame in an AgGrid with:
+     - First two columns (ID, NAME) pinned
+     - Columns sortable and filterable
+     - Columns auto‑sized
+     - Course columns grouped by their alphabetical prefix
     """
-    tab1, tab2, tab3 = st.tabs(["Required Courses", "Intensive Courses", "Extra Courses"])
+    gb = GridOptionsBuilder.from_dataframe(df)
 
-    def aggrid_from_styler(styler_df):
-        # Extract underlying DataFrame
-        df = styler_df.data if hasattr(styler_df, 'data') else styler_df
+    # 1) Pin ID & NAME
+    if "ID" in df.columns:
+        gb.configure_column("ID", pinned="left")
+    if "NAME" in df.columns:
+        gb.configure_column("NAME", pinned="left")
 
-        # Identify summary columns (credit totals) and course columns
-        summary_cols = [c for c in df.columns if c.startswith('#') or c == 'Total Credits']
-        course_cols = [c for c in df.columns if c not in ['ID', 'NAME'] + summary_cols]
+    # 2) Enable sorting, filtering, resizing
+    gb.configure_default_column(
+        sortable=True,
+        filter=True,
+        resizable=True
+    )
 
-        # Build column definitions
-        col_defs = []
-        # Freeze ID and NAME
-        col_defs.append({
-            'headerName': 'ID', 'field': 'ID', 'pinned': 'left', 'sortable': True, 'filter': True,
-            'lockPosition': True
-        })
-        col_defs.append({
-            'headerName': 'NAME', 'field': 'NAME', 'pinned': 'left', 'sortable': True, 'filter': True,
-            'lockPosition': True
-        })
-
-        # Group course columns by prefix
-        groups = {}
-        for col in course_cols:
-            m = re.match(r'([A-Za-z]+)', col)
-            prefix = m.group(1).upper() if m else 'Other'
-            groups.setdefault(prefix, []).append(col)
-
-        for prefix, cols in sorted(groups.items()):
-            if len(cols) > 1:
-                # create a group
-                children = []
-                for c in sorted(cols):
-                    children.append({
-                        'headerName': c, 'field': c,
-                        'sortable': True, 'filter': 'agMultiColumnFilter',
-                        'cellStyle': {'overflow': 'visible'}
-                    })
-                col_defs.append({
-                    'headerName': prefix, 'children': children
-                })
+    # 3) Group related course columns by prefix (letters before digits)
+    prefix_map = {}
+    for col in df.columns:
+        if col in ("ID", "NAME"):
+            continue
+        # Extract leading letters as the group key
+        prefix = ""
+        for ch in col:
+            if ch.isalpha():
+                prefix += ch
             else:
-                c = cols[0]
-                col_defs.append({
-                    'headerName': c, 'field': c,
-                    'sortable': True, 'filter': 'agMultiColumnFilter',
-                    'cellStyle': {'overflow': 'visible'}
-                })
+                break
+        if not prefix:
+            prefix = "Other"
+        prefix_map.setdefault(prefix, []).append(col)
 
-        # Add summary columns last
-        for c in summary_cols:
-            col_defs.append({
-                'headerName': c, 'field': c,
-                'sortable': True, 'filter': 'agNumberColumnFilter',
-                'type': 'rightAligned'
-            })
+    for group, cols in prefix_map.items():
+        for col in cols:
+            gb.configure_column(col, column_group=group)
 
-        # Build grid options
-        gb = GridOptionsBuilder()
-        gb.configure_grid_options(columnDefs=col_defs)
-        gb.configure_default_column(resizable=True)
-        gb.configure_grid_options(
-            suppressMovableColumns=False,
-            enableRangeSelection=False,
-            suppressFieldDotNotation=True
-        )
-        grid_options = gb.build()
-
-        # Render
-        return AgGrid(
-            df,
-            gridOptions=grid_options,
-            height=400,
-            width='100%',
-            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-            update_mode=GridUpdateMode.NO_UPDATE,
-            fit_columns_on_grid_load=True,
-            allow_unsafe_jscode=True
-        )
-
-    with tab1:
-        st.subheader("Required Courses Progress Report")
-        st.markdown("Courses needed to fulfill the curriculum requirements.")
-        aggrid_from_styler(styled_req_df)
-        st.markdown("*Courses assigned as S.C.E. or F.E.C. are included here once selected.*")
-
-    with tab2:
-        st.subheader("Intensive Courses Progress Report")
-        st.markdown("These are intensive courses required for the curriculum.")
-        aggrid_from_styler(styled_int_df)
-        st.markdown("*Intensive courses are displayed separately.*")
-
-    with tab3:
-        st.subheader("Extra Courses Detailed View")
-        st.markdown("Courses that are not part of the main or intensive list. They may be assigned as S.C.E. or F.E.C.")
-        st.dataframe(extra_courses_df, use_container_width=True)
-
-# Optionally, if you have an add_assignment_selection in this file:
-# def add_assignment_selection(extra_courses_df): ...
+    # 4) Build and display
+    grid_options = gb.build()
+    AgGrid(
+        df,
+        gridOptions=grid_options,
+        allow_unsafe_jscode=True,
+        update_mode=GridUpdateMode.NO_UPDATE,
+        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+        columns_auto_size_mode=ColumnsAutoSizeMode.FIT_ALL_COLUMNS_TO_VIEW,
+        height=400,  # adjust as needed
+        fit_columns_on_grid_load=True
+    )
