@@ -1,200 +1,315 @@
-# customize_courses.py
+# data_processing.py
 
-import streamlit as st
 import pandas as pd
-import os
-import io
-import csv
-from google_drive_utils import (
-    authenticate_google_drive,
-    search_file,
-    update_file,
-    upload_file,
-    download_file
-)
-from googleapiclient.discovery import build
+import streamlit as st
+from config import get_allowed_assignment_types
 
-st.title("Customize Courses")
-st.markdown("---")
+def read_progress_report(filepath):
+    """
+    Reads the uploaded progress report, handling both standard and wide formats.
+    Returns a DataFrame with columns: ID, NAME, Course, Grade, Year, Semester
+    or None on error.
+    """
+    try:
+        lower = filepath.lower()
+        if lower.endswith(('.xlsx', '.xls')):
+            xls = pd.ExcelFile(filepath)
+            if 'Progress Report' in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name='Progress Report')
+                required_cols = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
+                missing = required_cols - set(df.columns)
+                if missing:
+                    st.error(f"Missing columns in 'Progress Report': {missing}")
+                    return None
+                return df
+            else:
+                st.info("No 'Progress Report' sheet found; trying wide format.")
+                df = pd.read_excel(xls, sheet_name=0)
+                return transform_wide_format(df)
+        elif lower.endswith('.csv'):
+            df = pd.read_csv(filepath)
+            if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
+                return df
+            else:
+                st.info("CSV missing standard columns; trying wide format.")
+                return transform_wide_format(df)
+        else:
+            st.error("Unrecognized file type. Upload XLSX, XLS, or CSV.")
+            return None
+    except Exception as e:
+        st.error(f"Error reading progress report: {e}")
+        return None
 
-st.write(
-    "Upload a custom CSV to define courses configuration. "
-    "The CSV must contain: 'Course', 'Credits', 'PassingGrades', 'Type', "
-    "and optionally 'EffectiveSemester' (e.g. Spring-2023)."
-)
+def transform_wide_format(df):
+    """
+    Transforms a wide‐format sheet (COURSE1, COURSE2, ... columns) into long form.
+    Expects 'STUDENT ID' and 'NAME' columns.
+    COURSEi entries like 'MATH102/SPRING-2018/F'.
+    """
+    if 'STUDENT ID' not in df.columns or not any(c.startswith('COURSE') for c in df.columns):
+        st.error("Wide format requires 'STUDENT ID' and COURSE* columns.")
+        return None
 
-with st.expander("Course Configuration Options", expanded=True):
-    uploaded = st.file_uploader(
-        "Upload Courses Configuration (CSV)",
-        type="csv",
-        help="If your PassingGrades list has commas, you can omit quoting—this parser will stitch it back together."
+    course_cols = [c for c in df.columns if c.startswith('COURSE')]
+    id_vars = [c for c in df.columns if c not in course_cols]
+
+    # Melt
+    melted = df.melt(id_vars=id_vars, value_name='CourseData')
+    melted = melted[melted['CourseData'].notna() & (melted['CourseData']!='')]
+
+    # Split CourseData
+    parts = melted['CourseData'].str.split('/', expand=True)
+    if parts.shape[1] < 3:
+        st.error("Expected COURSECODE/SEMESTER-YEAR/GRADE format.")
+        return None
+    melted['Course'] = parts[0].str.strip().str.upper()
+    sem_year = parts[1].str.strip()
+    melted['Grade'] = parts[2].str.strip().str.upper()
+
+    sy = sem_year.str.split('-', expand=True)
+    if sy.shape[1] < 2:
+        st.error("Expected SEMESTER-YEAR in course data.")
+        return None
+    melted['Semester'] = sy[0].str.strip().str.title()
+    melted['Year'] = sy[1].str.strip()
+
+    melted = melted.rename(columns={'STUDENT ID': 'ID', 'NAME': 'NAME'})
+    req = {'ID','NAME','Course','Grade','Year','Semester'}
+    if not req.issubset(melted.columns):
+        st.error(f"Transformed data missing columns: {req - set(melted.columns)}")
+        return None
+
+    return melted[list(req)].drop_duplicates()
+
+def read_equivalent_courses(equiv_df):
+    """
+    Given a DataFrame with columns 'Course' and 'Equivalent' (comma‑separated list),
+    returns a dict mapping each equivalent → primary course.
+    """
+    mapping = {}
+    for _, r in equiv_df.iterrows():
+        primary = r['Course'].strip().upper()
+        for eq in str(r['Equivalent']).split(','):
+            mapping[eq.strip().upper()] = primary
+    return mapping
+
+def process_progress_report(
+    df,
+    target_courses,
+    intensive_courses,
+    per_student_assignments=None,
+    equivalent_courses_mapping=None,
+    course_rules=None
+):
+    """
+    Processes the raw DataFrame into three outputs:
+      - required_out: pivot table of ID/NAME × required courses with "grades | credits" cells
+      - intensive_out: same for intensive courses
+      - extra_df: flat DataFrame of extra courses for assignment
+      - extra_list: list of unique extra course codes
+    Uses semester‐effective passing rules from course_rules.
+    """
+    if equivalent_courses_mapping is None:
+        equivalent_courses_mapping = {}
+    if course_rules is None:
+        course_rules = {}
+
+    # 1) Encode semester as numeric for comparisons
+    sem_map = {'Spring':1, 'Summer':2, 'Fall':3}
+    df['SemValue'] = df['Year'].astype(int)*10 + df['Semester'].map(sem_map)
+
+    # 2) Map equivalents
+    df['Mapped Course'] = df['Course'].apply(lambda c: equivalent_courses_mapping.get(c, c))
+
+    # 3) Apply per‐student S.C.E./F.E.C. assignments
+    if per_student_assignments:
+        allowed = get_allowed_assignment_types()
+        def assign_map(r):
+            sid, orig, mapped = str(r['ID']), r['Course'], r['Mapped Course']
+            assigns = per_student_assignments.get(sid, {})
+            for t in allowed:
+                if assigns.get(t) == orig:
+                    return t
+            return mapped
+        df['Mapped Course'] = df.apply(assign_map, axis=1)
+
+    # 4) Determine pass/fail per row using effective rules
+    def passed_flag(r):
+        code, grade, sv = r['Mapped Course'], str(r['Grade']).upper(), r['SemValue']
+        rules = course_rules.get(code, [])
+        # pick the last rule whose eff <= sv
+        applicable = [rl for rl in rules if rl['eff'] <= sv]
+        if applicable:
+            rule = max(applicable, key=lambda x: x['eff'])
+        elif rules:
+            rule = rules[0]
+        else:
+            return False
+        return grade in rule['passing_grades']
+
+    df['PassedFlag'] = df.apply(passed_flag, axis=1)
+
+    # 5) Split into required/intensive/extra
+    extra_df = df[
+        ~df['Mapped Course'].isin(target_courses) &
+        ~df['Mapped Course'].isin(intensive_courses)
+    ]
+    req_df = df[df['Mapped Course'].isin(target_courses)]
+    int_df = df[df['Mapped Course'].isin(intensive_courses)]
+
+    # 6) Pivot grades & flags
+    grades_req = req_df.pivot_table(
+        index=['ID','NAME'],
+        columns='Mapped Course',
+        values='Grade',
+        aggfunc=lambda x: ', '.join(filter(pd.notna, map(str,x)))
+    ).reset_index()
+    flags_req = req_df.pivot_table(
+        index=['ID','NAME'],
+        columns='Mapped Course',
+        values='PassedFlag',
+        aggfunc='any'
+    ).reset_index()
+
+    grades_int = int_df.pivot_table(
+        index=['ID','NAME'],
+        columns='Mapped Course',
+        values='Grade',
+        aggfunc=lambda x: ', '.join(filter(pd.notna, map(str,x)))
+    ).reset_index()
+    flags_int = int_df.pivot_table(
+        index=['ID','NAME'],
+        columns='Mapped Course',
+        values='PassedFlag',
+        aggfunc='any'
+    ).reset_index()
+
+    # 7) Ensure all columns present
+    for c in target_courses:
+        if c not in grades_req: grades_req[c] = None
+        if c not in flags_req:  flags_req[c]  = False
+    for c in intensive_courses:
+        if c not in grades_int: grades_int[c] = None
+        if c not in flags_int:  flags_int[c]  = False
+
+    # 8) Merge grade tokens + credits
+    def merge_row(gr_row, fl_row, course_dict):
+        out = {}
+        for course, cred in course_dict.items():
+            gs = gr_row.get(course) or ''
+            ok = bool(fl_row.get(course))
+            if gs == '':
+                cell = 'NR'
+            else:
+                cell = f"{gs} | {cred if ok else 0}"
+            out[course] = cell
+        return out
+
+    req_out = grades_req[['ID','NAME']].copy()
+    for i, row in grades_req.iterrows():
+        merged = merge_row(row, flags_req.iloc[i], target_courses)
+        for k,v in merged.items():
+            req_out.at[i,k] = v
+
+    int_out = grades_int[['ID','NAME']].copy()
+    for i, row in grades_int.iterrows():
+        merged = merge_row(row, flags_int.iloc[i], intensive_courses)
+        for k,v in merged.items():
+            int_out.at[i,k] = v
+
+    extra_list = sorted(extra_df['Course'].unique())
+    return req_out, int_out, extra_df, extra_list
+
+def calculate_credits(row, courses_dict):
+    """
+    Given a pivoted row, calculates:
+      # of Credits Completed, # Registered (CR), # Remaining, Total Credits.
+    """
+    completed = registered = remaining = 0
+    total = sum(courses_dict.values())
+    for course, cred in courses_dict.items():
+        val = row.get(course, '')
+        if isinstance(val, str):
+            up = val.upper()
+            if up.startswith('CR'):
+                registered += cred
+            elif up.startswith('NR'):
+                remaining += cred
+            else:
+                parts = val.split('|')
+                if len(parts) == 2:
+                    right = parts[1].strip()
+                    try:
+                        num = int(right)
+                        if num > 0:
+                            completed += cred
+                        else:
+                            remaining += cred
+                    except ValueError:
+                        # PASS/FAIL for 0-credit courses
+                        if right.upper() != 'PASS':
+                            remaining += cred
+                else:
+                    remaining += cred
+        else:
+            remaining += cred
+    return pd.Series(
+        [completed, registered, remaining, total],
+        index=['# of Credits Completed','# Registered','# Remaining','Total Credits']
     )
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Download Template"):
-            tmpl = pd.DataFrame({
-                'Course': ['ENGL201', 'CHEM201', 'ARAB201', 'MATH101'],
-                'Credits': [3, 3, 3, 3],
-                'PassingGrades': [
-                    'A+,A,A-,B+,B,B-,C+,C,C-',
-                    'A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-',
-                    'A+,A,A-,B+,B,B-,C+,C,C-',
-                    'A+,A,A-,B+,B,B-,C+,C,C-'
-                ],
-                'Type': ['Required', 'Required', 'Required', 'Intensive'],
-                'EffectiveSemester': ['', '', 'Fall-2023', '']
-            })
-            st.download_button(
-                "Download CSV Template",
-                data=tmpl.to_csv(index=False).encode(),
-                file_name="courses_template.csv",
-                mime="text/csv"
-            )
-    with c2:
-        if st.button("Reload Configuration from Drive"):
-            try:
-                creds = authenticate_google_drive()
-                srv = build('drive', 'v3', credentials=creds)
-                fid = search_file(srv, "courses_config.csv")
-                if fid:
-                    download_file(srv, fid, "courses_config.csv")
-                    st.success("Reloaded courses_config.csv from Google Drive")
+def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
+    """
+    Exports the two displayed DataFrames to an Excel bytes buffer,
+    applying color fills based on cell values.
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.styles import PatternFill, Font, Alignment
+    from config import cell_color
+
+    output = io.BytesIO()
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "Required Courses"
+    green = PatternFill(start_color='90EE90',end_color='90EE90',fill_type='solid')
+    pink  = PatternFill(start_color='FFC0CB',end_color='FFC0CB',fill_type='solid')
+    yellow= PatternFill(start_color='FFFACD',end_color='FFFACD',fill_type='solid')
+
+    # Write Required sheet
+    for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True),1):
+        for c_idx, val in enumerate(row,1):
+            cell = ws1.cell(row=r_idx,column=c_idx,value=val)
+            if r_idx==1:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal='center')
+            else:
+                style = cell_color(str(val))
+                if 'lightgreen' in style:
+                    cell.fill = green
+                elif '#FFFACD' in style:
+                    cell.fill = yellow
                 else:
-                    st.error("No courses_config.csv found on Drive")
-            except Exception as e:
-                st.error(f"Error reloading: {e}")
+                    cell.fill = pink
 
-    # === Load or parse the courses_df ===
-    if uploaded is not None:
-        # Read raw text and parse with csv.reader
-        text = uploaded.getvalue().decode('utf-8', errors='replace')
-        reader = csv.reader(io.StringIO(text))
-        rows = [row for row in reader if any(cell.strip() for cell in row)]
-        if not rows:
-            st.error("Uploaded file is empty or invalid.")
-            courses_df = None
-        else:
-            # The header:
-            header = rows[0]
-            # Expecting at least 5 columns: Course, Credits, PassingGrades, Type, EffectiveSemester
-            # If we have more, we assume the extra fields belong to PassingGrades.
-            def normalize_row(row):
-                if len(row) < 5:
-                    # Too few columns
-                    return None
-                if len(row) == 5:
-                    return row
-                # More than 5: stitch row[2:-2] into one field
-                course = row[0].strip()
-                credits = row[1].strip()
-                passing = ",".join(cell.strip() for cell in row[2:-2])
-                typ = row[-2].strip()
-                eff = row[-1].strip()
-                return [course, credits, passing, typ, eff]
-
-            normalized = list(filter(None, (normalize_row(r) for r in rows[1:])))
-            courses_df = pd.DataFrame(normalized, columns=['Course','Credits','PassingGrades','Type','EffectiveSemester'])
-            # Save locally
-            courses_df.to_csv("courses_config.csv", index=False)
-
-            # Sync to Google Drive
-            try:
-                creds = authenticate_google_drive()
-                srv = build('drive', 'v3', credentials=creds)
-                fid = search_file(srv, "courses_config.csv")
-                if fid:
-                    update_file(srv, fid, "courses_config.csv")
+    # Intensive sheet
+    ws2 = wb.create_sheet("Intensive Courses")
+    for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True),1):
+        for c_idx, val in enumerate(row,1):
+            cell = ws2.cell(row=r_idx,column=c_idx,value=val)
+            if r_idx==1:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal='center')
+            else:
+                style = cell_color(str(val))
+                if 'lightgreen' in style:
+                    cell.fill = green
+                elif '#FFFACD' in style:
+                    cell.fill = yellow
                 else:
-                    upload_file(srv, "courses_config.csv", "courses_config.csv")
-                st.success("Configuration parsed, saved & synced to Drive")
-            except Exception as e:
-                st.error(f"Error syncing to Drive: {e}")
+                    cell.fill = pink
 
-    elif os.path.exists("courses_config.csv"):
-        courses_df = pd.read_csv("courses_config.csv")
-    else:
-        courses_df = None
-
-    # === Build rules from courses_df ===
-    if courses_df is not None:
-        required_cols = {'Course','Credits','PassingGrades','Type'}
-        if not required_cols.issubset(courses_df.columns):
-            st.error(f"Missing columns: {required_cols - set(courses_df.columns)}")
-        else:
-            # Normalize Course codes
-            courses_df['Course'] = courses_df['Course'].str.upper().str.strip()
-            # Ensure EffectiveSemester exists
-            if 'EffectiveSemester' not in courses_df.columns:
-                courses_df['EffectiveSemester'] = ''
-
-            # Map semesters to numeric EffValue
-            sem_map = {'Spring':1,'Summer':2,'Fall':3}
-            def sem_to_val(es):
-                if not es or pd.isna(es):
-                    return 0
-                try:
-                    sem, yr = es.split('-')
-                    return int(yr)*10 + sem_map.get(sem.title(),0)
-                except:
-                    return 0
-            courses_df['EffValue'] = courses_df['EffectiveSemester'].apply(sem_to_val)
-
-            # Build course_rules: course → list of {eff, passing_grades, credits}
-            course_rules = {}
-            for course, grp in courses_df.groupby('Course'):
-                rules = []
-                for _, r in grp.iterrows():
-                    rules.append({
-                        'eff': int(r['EffValue']),
-                        'passing_grades': [g.strip().upper() for g in r['PassingGrades'].split(',')],
-                        'credits': int(r['Credits'])
-                    })
-                rules.sort(key=lambda x: x['eff'])
-                course_rules[course] = rules
-
-            # Build target/intensive credit dicts
-            target = {
-                r['Course']: int(r['Credits'])
-                for _, r in courses_df[courses_df['Type'].str.lower()=='required'].iterrows()
-            }
-            intensive = {
-                r['Course']: int(r['Credits'])
-                for _, r in courses_df[courses_df['Type'].str.lower()=='intensive'].iterrows()
-            }
-
-            # Store in session
-            st.session_state['target_courses'] = target
-            st.session_state['intensive_courses'] = intensive
-            st.session_state['course_rules'] = course_rules
-
-            st.success("Courses configuration loaded with effective‐semester rules")
-
-# === Equivalent Courses Section ===
-with st.expander("Equivalent Courses", expanded=True):
-    st.write("This section automatically loads the ‘equivalent_courses.csv’ file from Google Drive.")
-    try:
-        creds = authenticate_google_drive()
-        srv = build('drive','v3',credentials=creds)
-        fid = search_file(srv, "equivalent_courses.csv")
-        if fid:
-            download_file(srv, fid, "equivalent_courses.csv")
-            st.success("Loaded equivalent_courses.csv from Drive")
-        else:
-            # create an empty file if missing
-            pd.DataFrame(columns=["Course","Equivalent"])\
-              .to_csv("equivalent_courses.csv",index=False)
-            upload_file(srv, "equivalent_courses.csv", "equivalent_courses.csv")
-            st.info("No file found. Created empty equivalent_courses.csv on Drive")
-    except Exception as e:
-        st.error(f"Error with equivalent courses: {e}")
-
-# === Assignment Types Configuration ===
-with st.expander("Assignment Types Configuration", expanded=True):
-    st.write("Edit the list of assignment types (e.g. S.C.E, F.E.C, ARAB201).")
-    default = st.session_state.get("allowed_assignment_types", ["S.C.E","F.E.C"])
-    txt = st.text_input("Assignment types (comma‑separated)", value=", ".join(default))
-    if st.button("Save Assignment Types"):
-        new = [x.strip() for x in txt.split(",") if x.strip()]
-        st.session_state["allowed_assignment_types"] = new
-        st.success("Assignment types updated")
+    wb.save(output)
+    output.seek(0)
+    return output
