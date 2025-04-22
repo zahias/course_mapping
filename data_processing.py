@@ -1,233 +1,136 @@
-import pandas as pd
 import streamlit as st
-from config import get_allowed_assignment_types
+import pandas as pd
+import pandas.errors
+from data_processing import (
+    process_progress_report,
+    calculate_credits,
+    save_report_with_formatting,
+    read_equivalent_courses
+)
+from ui_components import display_dataframes, add_assignment_selection
+from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
+from datetime import datetime
+import os
+from config import get_allowed_assignment_types, extract_primary_grade_from_full_value, cell_color
 
-def read_progress_report(filepath):
-    # ... your existing read logic (unchanged) ...
-    # Make sure you still have your read_progress_report and transform_wide_format functions here
-    raise NotImplementedError("Use your existing code.")
+st.title("View Reports")
+st.markdown("---")
 
-def read_equivalent_courses(equiv_df):
-    mapping = {}
-    for _, r in equiv_df.iterrows():
-        prim = r['Course'].strip().upper()
-        eqs = [c.strip().upper() for c in str(r['Equivalent']).split(',')]
-        for e in eqs:
-            mapping[e] = prim
-    return mapping
+# 1) Ensure raw data & course lists
+if "raw_df" not in st.session_state:
+    st.warning("Upload data first.")
+    st.stop()
+df = st.session_state["raw_df"]
+target = st.session_state.get("target_courses")
+intensive = st.session_state.get("intensive_courses")
+rules = st.session_state.get("course_rules", {})
+if target is None or intensive is None:
+    st.warning("Define courses in Customize Courses.")
+    st.stop()
 
-def process_progress_report(
+# 2) Load assignments
+per_student = load_assignments()
+
+# 3) Load equivalent courses safely
+eq_path = "equivalent_courses.csv"
+if os.path.exists(eq_path):
+    try:
+        eq_df = pd.read_csv(eq_path)
+    except pd.errors.EmptyDataError:
+        eq_df = pd.DataFrame(columns=["Course","Equivalent"])
+else:
+    eq_df = pd.DataFrame(columns=["Course","Equivalent"])
+eq_map = read_equivalent_courses(eq_df) if not eq_df.empty else {}
+
+# 4) Process
+full_req, full_int, extra_df, _ = process_progress_report(
     df,
-    target_courses,
-    intensive_courses,
-    per_student_assignments=None,
-    equivalent_courses_mapping=None,
-    course_rules=None
-):
-    if equivalent_courses_mapping is None:
-        equivalent_courses_mapping = {}
-    if course_rules is None:
-        course_rules = {}
+    target,
+    intensive,
+    per_student_assignments=per_student,
+    equivalent_courses_mapping=eq_map,
+    course_rules=rules
+)
 
-    # 1) compute numeric semester value
-    sem_map = {'Spring':1,'Summer':2,'Fall':3}
-    df['SemValue'] = df['Year'].astype(int)*10 + df['Semester'].map(sem_map)
+# 5) Append credits summary
+cred_req = full_req.apply(lambda r: calculate_credits(r, target), axis=1)
+full_req = pd.concat([full_req, cred_req], axis=1)
+cred_int = full_int.apply(lambda r: calculate_credits(r, intensive), axis=1)
+full_int = pd.concat([full_int, cred_int], axis=1)
 
-    # 2) map equivalents
-    df['Mapped Course'] = df['Course'].apply(lambda c: equivalent_courses_mapping.get(c, c))
+# 6) Simplified primary‐grade view (with credits)
+prim_req = full_req.copy()
+for c in target:
+    prim_req[c] = prim_req[c].apply(lambda x: extract_primary_grade_from_full_value(x))
+prim_int = full_int.copy()
+for c in intensive:
+    prim_int[c] = prim_int[c].apply(lambda x: extract_primary_grade_from_full_value(x))
 
-    # 3) apply S.C.E/F.E.C assignments
-    if per_student_assignments:
-        allowed = get_allowed_assignment_types()
-        def map_assign(r):
-            sid = str(r['ID']); c = r['Course']; m = r['Mapped Course']
-            if sid in per_student_assignments:
-                for t in allowed:
-                    if per_student_assignments[sid].get(t)==c:
-                        return t
-            return m
-        df['Mapped Course'] = df.apply(map_assign, axis=1)
+# 7) Toggles
+show_all = st.checkbox("Show All Grades", True)
+if show_all:
+    disp_req, disp_int = full_req.copy(), full_int.copy()
+else:
+    disp_req, disp_int = prim_req.copy(), prim_int.copy()
 
-    # 4) determine PassedFlag based on effective rules
-    def passed(r):
-        course = r['Mapped Course']
-        g = str(r['Grade']).strip().upper()
-        sv = r['SemValue']
-        rules = course_rules.get(course, [])
-        # find rule with max eff <= sv
-        applicable = [rule for rule in rules if rule['eff']<=sv]
-        if applicable:
-            rule = max(applicable, key=lambda x:x['eff'])
-        elif rules:
-            rule = rules[0]
-        else:
-            return False
-        return g in rule['passing_grades']
+collapse = st.checkbox("Show Completed/Not Completed Only", False)
+if collapse:
+    def collapse_fn(v):
+        if not isinstance(v, str): return v
+        parts = v.split("|")
+        if len(parts)==2:
+            try:
+                return "c" if int(parts[1].strip())>0 else ""
+            except:
+                return "c" if parts[1].strip().upper()=="PASS" else ""
+        return v
+    for col in target: disp_req[col] = disp_req[col].apply(collapse_fn)
+    for col in intensive: disp_int[col] = disp_int[col].apply(collapse_fn)
 
-    df['PassedFlag'] = df.apply(passed, axis=1)
+# 8) Display
+display_dataframes(disp_req, disp_int, extra_df, df)
 
-    # 5) split into extra/target/intensive
-    extra = df[
-        ~df['Mapped Course'].isin(target_courses) &
-        ~df['Mapped Course'].isin(intensive_courses)
-    ]
-    targ = df[df['Mapped Course'].isin(target_courses)]
-    inten = df[df['Mapped Course'].isin(intensive_courses)]
+st.markdown(
+    "<p><strong>Legend:</strong> "
+    "<span style='background-color:lightgreen;padding:3px;'>Passed</span> "
+    "<span style='background-color:#FFFACD;padding:3px;'>CR</span> "
+    "<span style='background-color:pink;padding:3px;'>Not Passed</span></p>",
+    unsafe_allow_html=True
+)
 
-    # 6) pivot grades & flags
-    pg = targ.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='Grade',
-        aggfunc=lambda x: ', '.join(filter(pd.notna, map(str,x)))
-    ).reset_index()
-    pp = targ.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='PassedFlag',
-        aggfunc='any'
-    ).reset_index()
+# 9) Assign Courses
+st.subheader("Assign Courses")
+search = st.text_input("Search by Student ID or Name")
+edited = add_assignment_selection(extra_df)
 
-    ipg = inten.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='Grade',
-        aggfunc=lambda x: ', '.join(filter(pd.notna, map(str,x)))
-    ).reset_index()
-    ipp = inten.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='PassedFlag',
-        aggfunc='any'
-    ).reset_index()
+c1,c2,c3 = st.columns(3)
+save_btn = c1.button("Save Assignments")
+reset_btn = c2.button("Reset All Assignments")
+dl_btn    = c3.button("Download Processed Report")
 
-    # 7) ensure all columns present
-    for c in target_courses:
-        if c not in pg: pg[c]=None
-        if c not in pp: pp[c]=False
-    for c in intensive_courses:
-        if c not in ipg: ipg[c]=None
-        if c not in ipp: ipp[c]=False
+if reset_btn:
+    reset_assignments()
+    st.success("Assignments reset.")
+    st.experimental_rerun()
 
-    # 8) build final DataFrames: "grade tokens | credits or 0"
-    def merge_row(g_row, f_row, course_dict):
-        out={}
-        for course, cred in course_dict.items():
-            gs = g_row.get(course) or ''
-            ok = bool(f_row.get(course))
-            if gs=='':
-                cell = 'NR'
-            else:
-                cell = f"{gs} | {cred if ok else 0}"
-            out[course] = cell
-        return out
+errs, updated = validate_assignments(edited, per_student)
+if errs:
+    st.error("Resolve errors:")
+    for e in errs: st.write(f"- {e}")
+elif save_btn:
+    save_assignments(updated)
+    st.success("Assignments saved.")
+    st.experimental_rerun()
 
-    req_out = pg[['ID','NAME']].copy()
-    for i, r in pg.iterrows():
-        flags = pp.iloc[i]
-        rowmap = merge_row(r, flags, target_courses)
-        for k,v in rowmap.items():
-            req_out.at[i,k] = v
+if dl_btn:
+    out = save_report_with_formatting(disp_req, disp_int, datetime.now().strftime("%Y%m%d_%H%M%S"))
+    st.download_button(
+        "Download Excel",
+        data=out.getvalue(),
+        file_name="student_progress_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-    int_out = ipg[['ID','NAME']].copy()
-    for i, r in ipg.iterrows():
-        flags = ipp.iloc[i]
-        rowmap = merge_row(r, flags, intensive_courses)
-        for k,v in rowmap.items():
-            int_out.at[i,k] = v
-
-    extra_list = sorted(extra['Course'].unique())
-    return req_out, int_out, extra, extra_list
-
-
-
-def calculate_credits(row, courses_dict):
-    completed, registered, remaining = 0, 0, 0
-    total = 0
-    for course, info in courses_dict.items():
-        credit = info["Credits"]
-        total += credit
-        value = row.get(course, "")
-        if isinstance(value, str):
-            up_val = value.upper()
-            if up_val.startswith("CR"):
-                registered += credit
-            elif up_val.startswith("NR"):
-                remaining += credit
-            else:
-                parts = value.split("|")
-                if len(parts) == 2:
-                    right = parts[1].strip()
-                    try:
-                        num = int(right)
-                        if num > 0:
-                            completed += credit
-                        else:
-                            remaining += credit
-                    except ValueError:
-                        if right.upper() == "PASS":
-                            # 0-credit passed; no credit to add, but considered passed
-                            pass
-                        else:
-                            remaining += credit
-                else:
-                    remaining += credit
-        else:
-            remaining += credit
-    return pd.Series([completed, registered, remaining, total],
-                     index=["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"])
-
-def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
-    import io
-    from openpyxl import Workbook
-    from openpyxl.utils.dataframe import dataframe_to_rows
-    from openpyxl.styles import PatternFill, Font, Alignment
-    from config import cell_color
-    output = io.BytesIO()
-    workbook = Workbook()
-    ws_req = workbook.active
-    ws_req.title = "Required Courses"
-    light_green = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-    pink = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
-    for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
-        for c_idx, value in enumerate(row, 1):
-            cell = ws_req.cell(row=r_idx, column=c_idx, value=value)
-            if r_idx == 1:
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                if value == "c":
-                    cell.fill = light_green
-                elif value == "":
-                    cell.fill = pink
-                else:
-                    style = cell_color(str(value))
-                    if "lightgreen" in style:
-                        cell.fill = light_green
-                    elif "#FFFACD" in style:
-                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
-                    else:
-                        cell.fill = pink
-    ws_int = workbook.create_sheet(title="Intensive Courses")
-    for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
-        for c_idx, value in enumerate(row, 1):
-            cell = ws_int.cell(row=r_idx, column=c_idx, value=value)
-            if r_idx == 1:
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                if value == "c":
-                    cell.fill = light_green
-                elif value == "":
-                    cell.fill = pink
-                else:
-                    style = cell_color(str(value))
-                    if "lightgreen" in style:
-                        cell.fill = light_green
-                    elif "#FFFACD" in style:
-                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
-                    else:
-                        cell.fill = pink
-    workbook.save(output)
-    output.seek(0)
-    return output
+# 10) Footer
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)
