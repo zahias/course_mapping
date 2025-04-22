@@ -9,7 +9,6 @@ from googleapiclient.discovery import build
 def init_db(db_name='assignments.db'):
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
-    # Create the table without a check constraint for assignment_type to allow dynamic types.
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS assignments (
             student_id TEXT NOT NULL,
@@ -43,13 +42,11 @@ def delete_assignment(conn, student_id, assignment_type):
         st.error(f"Error deleting assignment: {e}")
 
 def load_assignments(db_path='assignments.db'):
-    # Ensure the assignments table exists before querying
     conn = init_db(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT student_id, course, assignment_type FROM assignments')
     rows = cursor.fetchall()
     conn.close()
-
     assignments = {}
     for student_id, course_code, assignment_type in rows:
         if student_id not in assignments:
@@ -57,77 +54,57 @@ def load_assignments(db_path='assignments.db'):
         assignments[student_id][assignment_type] = course_code
     return assignments
 
-def close_db(conn):
-    conn.close()
-
 def validate_assignments(edited_df, per_student_assignments):
-    """
-    Validates the assignments edited by the user.
-    Checks that no student has multiple courses selected for the same assignment type.
-    
-    Returns:
-      - errors: A list of error messages.
-      - per_student_assignments: The updated assignments dictionary.
-    """
-    allowed_assignment_types = get_allowed_assignment_types()
+    allowed = get_allowed_assignment_types()
     errors = []
-    new_assignments = {}
-
+    new_asgs = {}
     for _, row in edited_df.iterrows():
-        student_id = str(row['ID'])
+        sid = str(row['ID'])
         course = row['Course']
-        if student_id not in new_assignments:
-            new_assignments[student_id] = {}
-        for assign_type in allowed_assignment_types:
-            if row.get(assign_type, False):
-                if assign_type in new_assignments[student_id]:
-                    errors.append(f"Student ID {student_id} has multiple {assign_type} courses selected.")
+        if sid not in new_asgs:
+            new_asgs[sid] = {}
+        for atype in allowed:
+            if row.get(atype, False):
+                if atype in new_asgs[sid]:
+                    errors.append(f"Student ID {sid} has multiple {atype} courses selected.")
                 else:
-                    new_assignments[student_id][assign_type] = course
-
-    for student_id, assignments in new_assignments.items():
-        if student_id not in per_student_assignments:
-            per_student_assignments[student_id] = assignments
+                    new_asgs[sid][atype] = course
+    for sid, assigns in new_asgs.items():
+        if sid not in per_student_assignments:
+            per_student_assignments[sid] = assigns
         else:
-            per_student_assignments[student_id].update(assignments)
-
+            per_student_assignments[sid].update(assigns)
     return errors, per_student_assignments
 
 def save_assignments(assignments, db_path='assignments.db', csv_path='sce_fec_assignments.csv'):
-    # Save to the SQLite database.
+    # save to sqlite
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    for student_id, assignment in assignments.items():
-        for assignment_type, course in assignment.items():
+    for sid, asg in assignments.items():
+        for atype, course in asg.items():
             cursor.execute('''
                 INSERT OR REPLACE INTO assignments (student_id, assignment_type, course)
                 VALUES (?, ?, ?)
-            ''', (student_id, assignment_type, course))
+            ''', (sid, atype, course))
     conn.commit()
     conn.close()
-
-    # Also save assignments to a CSV file for Google Drive syncing.
-    assignments_list = []
-    for student_id, assignment in assignments.items():
-        for assignment_type, course in assignment.items():
-            assignments_list.append({
-                'student_id': student_id,
-                'assignment_type': assignment_type,
-                'course': course
-            })
-    assignments_df = pd.DataFrame(assignments_list)
-    assignments_df.to_csv(csv_path, index=False)
-
+    # save to csv
+    rows = []
+    for sid, asg in assignments.items():
+        for atype, course in asg.items():
+            rows.append({'student_id': sid, 'assignment_type': atype, 'course': course})
+    df = pd.DataFrame(rows)
+    df.to_csv(csv_path, index=False)
+    # sync to GDrive
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
-        folder_id = None  # Adjust if you need to use a specific folder.
-        file_id = search_file(service, csv_path, folder_id=folder_id)
-        if file_id:
-            update_file(service, file_id, csv_path)
+        fid = search_file(service, csv_path)
+        if fid:
+            update_file(service, fid, csv_path)
             st.info("Assignments file updated on Google Drive.")
         else:
-            upload_file(service, csv_path, csv_path, folder_id=folder_id)
+            upload_file(service, csv_path, csv_path)
             st.info("Assignments file uploaded to Google Drive.")
     except Exception as e:
         st.error(f"Error syncing assignments with Google Drive: {e}")
@@ -138,11 +115,10 @@ def reset_assignments(csv_path='sce_fec_assignments.csv', db_path='assignments.d
     try:
         creds = authenticate_google_drive()
         service = build('drive', 'v3', credentials=creds)
-        file_id = search_file(service, csv_path)
-        if file_id:
-            delete_file(service, file_id)
+        fid = search_file(service, csv_path)
+        if fid:
+            delete_file(service, fid)
     except Exception as e:
         st.error(f"Error resetting assignments on Google Drive: {e}")
-
     if os.path.exists(db_path):
         os.remove(db_path)
