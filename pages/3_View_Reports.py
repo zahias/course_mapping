@@ -26,8 +26,9 @@ from config import (
 st.title("View Reports")
 st.markdown("---")
 
+# Must have raw data
 if "raw_df" not in st.session_state:
-    st.warning("No data available. Please upload data first.")
+    st.warning("Upload data first.")
     st.stop()
 
 df = st.session_state["raw_df"]
@@ -38,9 +39,10 @@ if not target_cfg or not intensive_cfg:
     st.warning("Define courses in 'Customize Courses'.")
     st.stop()
 
+# Load assignments
 per_assign = load_assignments()
 
-# Load equivalent courses safely
+# Load or create equivalent_courses.csv
 eq_path = "equivalent_courses.csv"
 if os.path.exists(eq_path):
     try:
@@ -56,14 +58,14 @@ req_df, int_df, extra_df, _ = process_progress_report(
     df, target_cfg, intensive_cfg, per_assign, equiv_map
 )
 
-# Static credits lookup (first definition’s credit)
-credits_static = {c: defs[0]['Credits'] for c, defs in target_cfg.items()}
+# Static credits dict for summary
+credits_static = {c: cfgs[0]['Credits'] for c, cfgs in target_cfg.items()}
 
-# Append credit summaries
+# Calculate credits summary
 credit_summ = req_df.apply(lambda r: calculate_credits(r, credits_static), axis=1)
 req_df = pd.concat([req_df, credit_summ], axis=1)
 
-# Primary‑grade precompute
+# Precompute primary-grade view
 primary_req = req_df.copy()
 for c in target_cfg:
     primary_req[c] = primary_req[c].apply(lambda v: extract_primary_grade_from_full_value(v))
@@ -79,8 +81,7 @@ else:
 
 if show_comp:
     def collapse(v):
-        if not isinstance(v, str):
-            return v
+        if not isinstance(v, str): return v
         parts = v.split("|")
         if len(parts)==2:
             right = parts[1].strip()
@@ -92,10 +93,15 @@ if show_comp:
     for c in target_cfg:
         disp_req[c] = disp_req[c].apply(collapse)
 
-# Display tables
-display_dataframes(disp_req, int_df, extra_df, df)
+# Display
+display_dataframes(
+    disp_req.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_cfg.keys())]).data,
+    int_df,
+    extra_df,
+    df
+)
 
-# Color legend
+# Legend
 st.markdown(
     "<p><strong>Color Legend:</strong> "
     "<span style='background-color: lightgreen; padding:3px;'>Passed</span> "
@@ -119,9 +125,8 @@ dl   = c3.button("Download Processed Report")
 
 errors, updated = validate_assignments(edited, per_assign)
 if errors:
-    st.error("Resolve these errors:")
-    for e in errors:
-        st.write(f"- {e}")
+    st.error("Resolve:")
+    for e in errors: st.write(f"- {e}")
 elif save:
     save_assignments(updated)
     st.success("Assignments saved.")
