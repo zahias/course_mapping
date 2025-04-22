@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 from config import is_passing_grade_from_list, get_allowed_assignment_types
+from config import get_default_grading_system
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import PatternFill, Font, Alignment
@@ -263,11 +264,12 @@ def calculate_credits(row, credits_dict):
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
     """
     Writes two sheets ('Required Courses', 'Intensive Courses') to an XLSX in memory,
-    applying color formatting.
+    applying light-green fill for passed credits, pink for missing/failed, and yellow for CR.
     """
     output = io.BytesIO()
     wb = Workbook()
 
+    # Prepare fills
     green = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
     pink = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
     yellow = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
@@ -280,15 +282,21 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
                     cell.font = Font(bold=True)
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 else:
-                    if isinstance(val, str) and val.upper().startswith("CR"):
-                        cell.fill = yellow
-                    elif isinstance(val, str) and "|" in val:
-                        right = val.split("|")[1].strip()
-                        try:
-                            num = int(right)
-                            cell.fill = green if num > 0 else pink
-                        except:
-                            cell.fill = green if right.upper() == "PASS" else pink
+                    if isinstance(val, str):
+                        u = val.upper()
+                        if u.startswith("CR"):
+                            cell.fill = yellow
+                        else:
+                            parts = val.split("|")
+                            if len(parts) == 2:
+                                right = parts[1].strip()
+                                try:
+                                    num = int(right)
+                                    cell.fill = green if num > 0 else pink
+                                except:
+                                    cell.fill = green if right.upper() == "PASS" else pink
+                            else:
+                                cell.fill = pink
                     else:
                         cell.fill = pink
 
