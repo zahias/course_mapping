@@ -4,6 +4,7 @@ import streamlit as st
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 from config import is_passing_grade_from_list, get_allowed_assignment_types
 <<<<<<< HEAD
 =======
@@ -26,10 +27,14 @@ from config import get_allowed_assignment_types
 =======
 from config import is_passing_grade_from_list, get_allowed_assignment_types
 >>>>>>> parent of abfac76 (3)
+=======
+from config import is_passing_grade_from_list, GRADE_ORDER, get_allowed_assignment_types
+>>>>>>> parent of 2e22e23 (Update data_processing.py)
 
-# Academic semester ordering: Fall → Spring → Summer
-SEM_ORDER = {"Fall": 1, "Spring": 2, "Summer": 3}
+# Map semester names to order
+SEM_ORDER = {'Spring':1,'Summer':2,'Fall':3}
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 def select_config(defs, record_code):
     """
@@ -203,14 +208,18 @@ def _term_to_tuple(year: int, semester: str):
     return (int(year), SEM_ORDER.get(semester.title(), 0))
 
 def select_course_definition(defs: list, year: int, semester: str) -> dict:
+=======
+def select_course_definition(defs, year, sem):
+>>>>>>> parent of 2e22e23 (Update data_processing.py)
     """
-    From a list of course‐definition dicts (each with an optional Effective_From),
-    pick the one whose Effective_From is the latest date <= the student’s term.
-    If none apply, fall back to the definition with the earliest Effective_From.
+    From a list of definitions (each with Effective_From/To),
+    pick the one whose date‑range includes (year,sem). If multiple,
+    choose the one with the latest Effective_From. If none match,
+    fallback to the first definition.
     """
-    term = _term_to_tuple(year, semester)
     candidates = []
     for d in defs:
+<<<<<<< HEAD
 <<<<<<< HEAD
         ef = d.get('Effective_From')
         if ef:
@@ -341,53 +350,67 @@ def select_course_definition(defs: list, year: int, semester: str) -> dict:
     candidates = []
     for d in defs:
         ef = d.get('Effective_From')
+=======
+        ok_from = True
+        ef = d['Effective_From']
+>>>>>>> parent of 2e22e23 (Update data_processing.py)
         if ef:
-            ef_term = (ef[1], SEM_ORDER.get(ef[0], 0))
-        else:
-            ef_term = (0, 0)
-        candidates.append((d, ef_term))
-    # Definitions that have started by this term
-    valid = [(d, t) for (d, t) in candidates if t <= term]
-    if valid:
-        # Choose the one whose start is most recent
-        chosen = max(valid, key=lambda x: x[1])[0]
-    else:
-        # No definition started yet; use the earliest one
-        chosen = min(candidates, key=lambda x: x[1])[0]
-    return chosen
+            e_sem, e_year = ef
+            if (year < e_year) or (year==e_year and SEM_ORDER[sem]<SEM_ORDER[e_sem]):
+                ok_from = False
+        ok_to = True
+        et = d['Effective_To']
+        if et:
+            t_sem, t_year = et
+            if (year > t_year) or (year==t_year and SEM_ORDER[sem]>SEM_ORDER[t_sem]):
+                ok_to = False
+        if ok_from and ok_to:
+            candidates.append(d)
+    if candidates:
+        # pick with max Effective_From date
+        def keyfn(d):
+            ef = d['Effective_From']
+            if not ef:
+                return (0,0)
+            s,y = ef
+            return (y, SEM_ORDER[s])
+        return max(candidates, key=keyfn)
+    return defs[0]
 
 def determine_course_value(grade, course, courses_config, year, semester):
     """
-    Time‐aware grade processing:
-      - Null → 'NR'
-      - Empty → 'CR | credits'
-      - Otherwise split on ',', check passing via the selected definition's PassingGrades
+    Time‑aware determine value:
+     - Pick appropriate course definition for this (year,semester).
+     - Use its PassingGrades and Credits.
+     - Then same logic: if grade missing→NR; if ""→CR; else test passing via is_passing_grade_from_list.
     """
-    defs = courses_config.get(course, [])
+    defs = courses_config.get(course)
     if not defs:
-        return 'NR'
+        st.error(f"No config for course {course}")
+        return "NR"
     cfg = select_course_definition(defs, year, semester)
     credits = cfg['Credits']
-    pass_list = cfg['PassingGrades']
+    pass_str = cfg['PassingGrades']
     if pd.isna(grade):
-        return 'NR'
-    if grade == '':
-        return f'CR | {credits}'
-    tokens = [g.strip().upper() for g in grade.split(',') if g.strip()]
-    passed = any(is_passing_grade_from_list(tok, pass_list) for tok in tokens)
-    token_str = ', '.join(tokens)
-    if credits > 0:
-        return f'{token_str} | {credits}' if passed else f'{token_str} | 0'
+        return "NR"
+    if grade=="":
+        return f"CR | {credits}"
+    tokens = [g.strip().upper() for g in grade.split(',')]
+    passed = any(is_passing_grade_from_list(tok,pass_str) for tok in tokens)
+    toklist = ", ".join(tokens)
+    if credits>0:
+        return f"{toklist} | {credits}" if passed else f"{toklist} | 0"
     else:
-        return f'{token_str} | PASS' if passed else f'{token_str} | FAIL'
+        return f"{toklist} | PASS" if passed else f"{toklist} | FAIL"
 
 def process_progress_report(
-    df: pd.DataFrame,
-    target_cfg: dict,
-    intensive_cfg: dict,
-    per_student_assignments: dict = None,
-    equivalent_courses_mapping: dict = None
+    df,
+    target_cfg,
+    intensive_cfg,
+    per_student_assignments=None,
+    equivalent_courses_mapping=None
 ):
+<<<<<<< HEAD
     # 1) Apply equivalent‐course mapping
 >>>>>>> parent of abfac76 (3)
     if equivalent_courses_mapping is None:
@@ -397,35 +420,39 @@ def process_progress_report(
 <<<<<<< HEAD
 <<<<<<< HEAD
     # 2) Apply S.C.E./F.E.C. assignments
+=======
+    # Map equivalents
+    if equivalent_courses_mapping is None:
+        equivalent_courses_mapping = {}
+    df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x,x))
+    # Apply S.C.E/F.E.C...
+>>>>>>> parent of 2e22e23 (Update data_processing.py)
     if per_student_assignments:
         allowed = get_allowed_assignment_types()
         def map_assign(r):
-            sid = str(r['ID'])
-            course = r['Course']
-            for atype in allowed:
-                if per_student_assignments.get(sid, {}).get(atype) == course:
-                    return atype
+            sid,str_course = str(r['ID']), r['Course']
+            if sid in per_student_assignments:
+                assigns = per_student_assignments[sid]
+                for t in allowed:
+                    if assigns.get(t)==str_course:
+                        return t
             return r['Mapped Course']
-        df['Mapped Course'] = df.apply(map_assign, axis=1)
-
-    # 3) Split into required, intensive, extra
+        df['Mapped Course'] = df.apply(map_assign,axis=1)
+    # Split into required/intensive/extra
     req_df = df[df['Mapped Course'].isin(target_cfg)]
     int_df = df[df['Mapped Course'].isin(intensive_cfg)]
     extra_df = df[~df['Mapped Course'].isin(target_cfg) & ~df['Mapped Course'].isin(intensive_cfg)]
-
-    def pivot_and_apply(subdf, cfg_dict):
-        # include Year & Semester to pick definitions
-        piv = subdf.pivot_table(
-            index=['ID','NAME','Year','Semester'],
-            columns='Mapped Course',
-            values='Grade',
+    # Pivot
+    def pivot_and_process(group_df, cfg_dict):
+        piv = group_df.pivot_table(
+            index=['ID','NAME'], columns='Mapped Course', values='Grade',
             aggfunc=lambda x: ', '.join(x.astype(str))
         ).reset_index()
-        # ensure all course columns exist
+        # Ensure all columns exist
         for c in cfg_dict:
             if c not in piv.columns:
                 piv[c] = None
-        # apply time‐aware determine_course_value
+        # Apply determine_course_value
         for c in cfg_dict:
             piv[c] = piv.apply(
                 lambda r: determine_course_value(
@@ -433,6 +460,7 @@ def process_progress_report(
                 ),
                 axis=1
             )
+<<<<<<< HEAD
         # drop Year & Semester before returning
         return piv.drop(columns=['Year','Semester'])
 
@@ -536,41 +564,51 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
 =======
     req_pivot = pivot_and_apply(req_df, target_cfg)
     int_pivot = pivot_and_apply(int_df, intensive_cfg)
+=======
+        return piv[['ID','NAME'] + list(cfg_dict.keys())]
+    req_piv = pivot_and_process(req_df, target_cfg)
+    int_piv = pivot_and_process(int_df, intensive_cfg)
+    # Build extra list
+>>>>>>> parent of 2e22e23 (Update data_processing.py)
     extra_list = sorted(extra_df['Course'].unique())
-
-    return req_pivot, int_pivot, extra_df, extra_list
+    return req_piv, int_piv, extra_df, extra_list
 
 def calculate_credits(row, courses_config, year, semester):
     """
-    Recalculate completed/registered/remaining/total credits
-    using the time‐aware definition for each course.
+    For each required/intensive course in courses_config,
+    recalc completed, registered, remaining, total exactly as before,
+    but using time‑aware credits.
     """
-    completed = registered = remaining = total = 0
+    comp = reg = rem = tot = 0
     for course, defs in courses_config.items():
         cfg = select_course_definition(defs, year, semester)
         cred = cfg['Credits']
-        total += cred
-        val = row.get(course, '')
-        if isinstance(val, str) and val.upper().startswith('CR'):
-            registered += cred
-        elif isinstance(val, str) and val.upper().startswith('NR'):
-            remaining += cred
-        elif isinstance(val, str):
+        tot += cred
+        val = row.get(course,'')
+        if isinstance(val,str) and val.upper().startswith('CR'):
+            reg += cred
+        elif isinstance(val,str) and val.upper().startswith('NR'):
+            rem += cred
+        elif isinstance(val,str):
             parts = val.split('|')
-            if len(parts) == 2:
+            if len(parts)==2:
                 right = parts[1].strip()
                 try:
                     num = int(right)
-                    if num > 0:
-                        completed += cred
+                    if num>0:
+                        comp += cred
                     else:
-                        remaining += cred
+                        rem += cred
                 except ValueError:
-                    if right.upper() != 'PASS':
-                        remaining += cred
+                    if right.upper()=='PASS':
+                        # 0-credit passed
+                        pass
+                    else:
+                        rem += cred
             else:
-                remaining += cred
+                rem += cred
         else:
+<<<<<<< HEAD
             remaining += cred
 
     return pd.Series(
@@ -774,3 +812,8 @@ def save_report_with_formatting(displayed_df, intensive_df, timestamp):
     output.seek(0)
     return output
 >>>>>>> parent of abfac76 (3)
+=======
+            rem += cred
+    return pd.Series([comp,reg,rem,tot],
+                     index=['# of Credits Completed','# Registered','# Remaining','Total Credits'])
+>>>>>>> parent of 2e22e23 (Update data_processing.py)
