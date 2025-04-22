@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+<<<<<<< HEAD
 from config import is_passing_grade_from_list, get_allowed_assignment_types
 <<<<<<< HEAD
 =======
@@ -97,65 +98,66 @@ def read_equivalent_courses(equivalent_courses_df):
             mapping[eq] = primary
     return mapping
 >>>>>>> parent of 5a48a63 (Update data_processing.py)
+=======
+from config import get_allowed_assignment_types
+>>>>>>> parent of 98d5b2a (3)
 
-# Academic semester ordering for comparisons
-SEM_ORDER = {'Fall': 1, 'Spring': 2, 'Summer': 3}
+# Semester index for computing a linear code: FALL→0, SPRING→1, SUMMER→2
+SEM_INDEX = {'Fall': 0, 'Spring': 1, 'Summer': 2}
 
-def select_course_definition(defs, year, sem):
+def select_config(defs, record_code):
     """
-    From defs (a list of course‐config entries), pick the one whose
-    Effective_From/To includes (year, sem). If none match, return defs[0].
+    From a list of definitions, select the one whose [Eff_From, Eff_To]
+    range includes record_code. If multiple, pick the one with the largest Eff_From.
     """
     candidates = []
     for d in defs:
-        ef = d['Effective_From']
-        et = d['Effective_To']
-        ok_from = True
-        if ef:
-            e_sem, e_yr = ef
-            if (year < e_yr) or (year == e_yr and SEM_ORDER[sem] < SEM_ORDER[e_sem]):
-                ok_from = False
-        ok_to = True
-        if et:
-            t_sem, t_yr = et
-            if (year > t_yr) or (year == t_yr and SEM_ORDER[sem] > SEM_ORDER[t_sem]):
-                ok_to = False
+        ef = d['Eff_From']
+        et = d['Eff_To']
+        ok_from = (ef is None) or (record_code >= ef)
+        ok_to   = (et is None) or (record_code <= et)
         if ok_from and ok_to:
             candidates.append(d)
     if candidates:
-        # Pick the one with the latest Effective_From
-        def keyfn(d):
-            ef = d['Effective_From']
-            if not ef:
-                return (0, 0)
-            s, y = ef
-            return (y, SEM_ORDER[s])
-        return max(candidates, key=keyfn)
+        # pick the one with max Eff_From (None→treated as 0)
+        return max(candidates, key=lambda d: d['Eff_From'] or 0)
+    # fallback
     return defs[0]
 
-def determine_course_value(grade, course, courses_cfg, year, semester):
+def determine_course_value(grade_str, course, cfg_list, record_code):
     """
-    Time‐aware grading: pick the correct cfg entry for (year,semester),
-    then test grade tokens against its PassingGrades; return "tokens | credits" or "tokens | 0"/PASS/FAIL.
+    Determine the cell value for a single course pivot:
+      - Picks the config entry valid at record_code
+      - Then applies passing‐grade logic to grade_str tokens
+      - Uses Credits from that config entry
     """
-    defs = courses_cfg.get(course, [])
-    if not defs:
-        st.error(f"No configuration for course {course}")
+    if pd.isna(grade_str):
         return "NR"
-    cfg = select_course_definition(defs, year, semester)
+    if grade_str=="":
+        cfg = select_config(cfg_list, record_code)
+        return f"CR | {cfg['Credits']}"
+
+    cfg = select_config(cfg_list, record_code)
     credits = cfg['Credits']
-    passing = cfg['PassingGrades']
-    if pd.isna(grade):
-        return "NR"
-    if grade == "":
-        return f"CR | {credits}"
-    tokens = [g.strip().upper() for g in grade.split(',') if g.strip()]
-    passed = any(is_passing_grade_from_list(tok, passing) for tok in tokens)
-    tokstr = ", ".join(tokens)
+    passing = [g.strip().upper() for g in cfg['PassingGrades'].split(',')]
+
+    tokens = [g.strip().upper() for g in grade_str.split(',') if g.strip()]
+    tok_display = ", ".join(tokens)
+    passed = any(tok in passing for tok in tokens)
+
     if credits > 0:
-        return f"{tokstr} | {credits}" if passed else f"{tokstr} | 0"
+        return f"{tok_display} | {credits}" if passed else f"{tok_display} | 0"
     else:
-        return f"{tokstr} | PASS" if passed else f"{tokstr} | FAIL"
+        return f"{tok_display} | PASS" if passed else f"{tok_display} | FAIL"
+
+def read_equivalent_courses(equiv_df):
+    mapping = {}
+    for _, row in equiv_df.iterrows():
+        prim = row['Course'].strip().upper()
+        equivs = [e.strip().upper() for e in str(row['Equivalent']).split(',')]
+        for e in equivs:
+            mapping[e] = prim
+    return mapping
 
 def process_progress_report(
     df,
@@ -164,63 +166,77 @@ def process_progress_report(
     per_student_assignments=None,
     equivalent_courses_mapping=None
 ):
+    # 1) Compute a record code per row
+    df['RecordCode'] = df.apply(
+        lambda r: int(r['Year']) * 3 + SEM_INDEX[r['Semester']],
+        axis=1
+    )
+
+    # 2) Map equivalent courses
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
-
-    # Map equivalents
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
 
-    # Apply assignments (S.C.E. / F.E.C. / etc.)
+    # 3) Apply S.C.E./F.E.C. assignments
     if per_student_assignments:
         allowed = get_allowed_assignment_types()
-        def map_assign(r):
-            sid = str(r['ID'])
-            crs = r['Course']
+        def map_assign(row):
+            sid = str(row['ID'])
+            crs = row['Course']
             if sid in per_student_assignments:
-                for a in allowed:
-                    if per_student_assignments[sid].get(a) == crs:
-                        return a
-            return r['Mapped Course']
+                assigns = per_student_assignments[sid]
+                for t in allowed:
+                    if assigns.get(t)==crs:
+                        return t
+            return row['Mapped Course']
         df['Mapped Course'] = df.apply(map_assign, axis=1)
 
-    # Partition
+    # 4) Split into required/intensive/extra
     req_df = df[df['Mapped Course'].isin(target_cfg)]
     int_df = df[df['Mapped Course'].isin(intensive_cfg)]
-    extra_df = df[
-        ~df['Mapped Course'].isin(target_cfg)
-        & ~df['Mapped Course'].isin(intensive_cfg)
-    ]
+    extra_df = df[~df['Mapped Course'].isin(target_cfg) &
+                  ~df['Mapped Course'].isin(intensive_cfg)]
 
-    # Pivot & process
-    def pivot_process(subdf, cfg_dict):
-        piv = subdf.pivot_table(
-            index=['ID','NAME','Year','Semester'],
-            columns='Mapped Course',
-            values='Grade',
-            aggfunc=lambda x: ', '.join(x.astype(str))
-        ).reset_index()
-        # Ensure all columns
-        for c in cfg_dict:
-            if c not in piv.columns:
-                piv[c] = None
-        # Apply time‐aware grading
-        for c in cfg_dict:
-            piv[c] = piv.apply(
+    # 5) Build pivots for grades and for record‐code
+    grade_piv_req = req_df.pivot_table(
+        index=['ID','NAME'], columns='Mapped Course', values='Grade',
+        aggfunc=lambda x: ", ".join(x.astype(str))
+    ).reset_index()
+    code_piv_req = req_df.pivot_table(
+        index=['ID','NAME'], columns='Mapped Course', values='RecordCode',
+        aggfunc='max'
+    ).reset_index().fillna(0)
+
+    grade_piv_int = int_df.pivot_table(
+        index=['ID','NAME'], columns='Mapped Course', values='Grade',
+        aggfunc=lambda x: ", ".join(x.astype(str))
+    ).reset_index()
+    code_piv_int = int_df.pivot_table(
+        index=['ID','NAME'], columns='Mapped Course', values='RecordCode',
+        aggfunc='max'
+    ).reset_index().fillna(0)
+
+    # 6) Ensure all columns exist & apply determine_course_value
+    def finalize(piv_grad, piv_code, cfg_dict):
+        for course in cfg_dict.keys():
+            if course not in piv_grad.columns:
+                piv_grad[course] = None
+            # apply time‐aware logic
+            piv_grad[course] = piv_grad.apply(
                 lambda r: determine_course_value(
-                    r[c],
-                    c,
-                    cfg_dict,
-                    int(r['Year']),
-                    r['Semester']
+                    r[course],
+                    course,
+                    cfg_dict[course],
+                    int(piv_code.at[r.name, course] if course in piv_code else 0)
                 ),
                 axis=1
             )
-        # Drop Year,Semester for final
-        return piv[['ID','NAME'] + list(cfg_dict.keys())]
+        return piv_grad[['ID','NAME'] + list(cfg_dict.keys())]
 
-    req_piv = pivot_process(req_df, target_cfg)
-    int_piv = pivot_process(int_df, intensive_cfg)
+    req_final = finalize(grade_piv_req, code_piv_req, target_cfg)
+    int_final = finalize(grade_piv_int, code_piv_int, intensive_cfg)
 
+<<<<<<< HEAD
     return req_piv, int_piv, extra_df, sorted(extra_df['Course'].unique())
 
 def calculate_credits(row, credits_dict):
@@ -312,3 +328,7 @@ def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp)
     output.seek(0)
     return output
 >>>>>>> parent of 5a48a63 (Update data_processing.py)
+=======
+    extra_list = sorted(extra_df['Course'].unique())
+    return req_final, int_final, extra_df, extra_list
+>>>>>>> parent of 98d5b2a (3)
