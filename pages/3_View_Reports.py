@@ -8,31 +8,41 @@ from data_processing import (
     read_equivalent_courses
 )
 from ui_components import display_dataframes, add_assignment_selection
-from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
+from assignment_utils import (
+    load_assignments,
+    save_assignments,
+    validate_assignments,
+    reset_assignments
+)
 from datetime import datetime
 import os
-from config import get_allowed_assignment_types, extract_primary_grade_from_full_value, cell_color
+
+from config import (
+    get_allowed_assignment_types,
+    extract_primary_grade_from_full_value,
+    cell_color
+)
 
 st.title("View Reports")
 st.markdown("---")
 
+# Must have raw data
 if "raw_df" not in st.session_state:
-    st.warning("No data available. Please upload data first.")
+    st.warning("Upload data first.")
     st.stop()
 
-# Load raw data and course configs
 df = st.session_state["raw_df"]
-target_cfg   = st.session_state.get("target_courses_config")
+target_cfg = st.session_state.get("target_courses_config")
 intensive_cfg = st.session_state.get("intensive_courses_config")
 
-if target_cfg is None or intensive_cfg is None:
-    st.warning("Courses not configured. Go to Customize Courses page.")
+if not target_cfg or not intensive_cfg:
+    st.warning("Define courses in 'Customize Courses'.")
     st.stop()
 
 # Load assignments
-per_student_assignments = load_assignments()
+per_assign = load_assignments()
 
-# Load equivalent-courses CSV, handle empty
+# Load or create equivalent_courses.csv
 eq_path = "equivalent_courses.csv"
 if os.path.exists(eq_path):
     try:
@@ -43,100 +53,60 @@ else:
     eq_df = pd.DataFrame(columns=["Course","Equivalent"])
 equiv_map = read_equivalent_courses(eq_df) if not eq_df.empty else {}
 
-# Process report with time‐aware passing rules
+# Process
 req_df, int_df, extra_df, _ = process_progress_report(
-    df,
-    target_cfg,
-    intensive_cfg,
-    per_student_assignments,
-    equiv_map
+    df, target_cfg, intensive_cfg, per_assign, equiv_map
 )
 
-# Append credit summaries (use static credits from the most recent config entry)
-def calc(row, cfg_dict):
-    """
-    Same as before: count completed/registered/remaining/total using
-    the Credits of the config entry that applied to the student's LAST attempt.
-    """
-    completed = registered = remaining = 0
-    total = sum(defs[-1]['Credits'] for defs in cfg_dict.values())
-    for course, defs in cfg_dict.items():
-        # always pick latest Eff_From to get Credits
-        creds = max(d['Eff_From'] or 0 for d in defs)  # not used here
-        # reuse original static credit logic for summary
-        val = row.get(course, "")
-        if isinstance(val, str) and val.upper().startswith("CR"):
-            registered += [d['Credits'] for d in defs][-1]
-        elif isinstance(val, str) and val.upper().startswith("NR"):
-            remaining += [d['Credits'] for d in defs][-1]
-        elif isinstance(val, str):
-            parts = val.split("|")
-            if len(parts)==2:
-                num = parts[1].strip()
-                try:
-                    n = int(num)
-                    if n>0:
-                        completed += n
-                    else:
-                        remaining += [d['Credits'] for d in defs][-1]
-                except ValueError:
-                    # PASS/FAIL for 0-credit
-                    pass
-            else:
-                remaining += [d['Credits'] for d in defs][-1]
-        else:
-            remaining += [d['Credits'] for d in defs][-1]
-    return pd.Series([completed, registered, remaining, total],
-                     index=['# of Credits Completed','# Registered','# Remaining','Total Credits'])
+# Static credits dict for summary
+credits_static = {c: cfgs[0]['Credits'] for c, cfgs in target_cfg.items()}
 
-# summary columns
-req_df = pd.concat([req_df, req_df.apply(lambda r: calc(r, target_cfg), axis=1)], axis=1)
-int_df = pd.concat([int_df, int_df.apply(lambda r: calc(r, intensive_cfg), axis=1)], axis=1)
+# Calculate credits summary
+credit_summ = req_df.apply(lambda r: calculate_credits(r, credits_static), axis=1)
+req_df = pd.concat([req_df, credit_summ], axis=1)
 
-# Prepare primary-grade variants
-prim_req = req_df.copy()
+# Precompute primary-grade view
+primary_req = req_df.copy()
 for c in target_cfg:
-    prim_req[c] = prim_req[c].apply(extract_primary_grade_from_full_value)
-prim_int = int_df.copy()
-for c in intensive_cfg:
-    prim_int[c] = prim_int[c].apply(extract_primary_grade_from_full_value)
+    primary_req[c] = primary_req[c].apply(lambda v: extract_primary_grade_from_full_value(v))
 
 # Toggles
-show_all  = st.checkbox("Show All Grades", True)
-show_only = st.checkbox("Show Completed/Not Completed Only", False)
+show_all = st.checkbox("Show All Grades", value=True)
+show_comp = st.checkbox("Show Completed/Not Completed Only", value=False)
 
-def collapse(val):
-    if not isinstance(val, str): return val
-    parts = val.split("|")
-    if len(parts)==2:
-        p = parts[1].strip()
-        try:
-            return "c" if int(p)>0 else ""
-        except:
-            return "c" if p.upper()=="PASS" else ""
-    return val
+if show_all:
+    disp_req = req_df.copy()
+else:
+    disp_req = primary_req.copy()
 
-def prepare(df_full, df_prim):
-    df = df_full if show_all else df_prim
-    if show_only:
-        for col in target_cfg:
-            df[col] = df[col].apply(collapse)
-        for col in intensive_cfg:
-            df[col] = df[col].apply(collapse)
-    return df
-
-disp_req = prepare(req_df, prim_req)
-disp_int = prepare(int_df, prim_int)
+if show_comp:
+    def collapse(v):
+        if not isinstance(v, str): return v
+        parts = v.split("|")
+        if len(parts)==2:
+            right = parts[1].strip()
+            try:
+                return "c" if int(right)>0 else ""
+            except ValueError:
+                return "c" if right.upper()=="PASS" else ""
+        return v
+    for c in target_cfg:
+        disp_req[c] = disp_req[c].apply(collapse)
 
 # Display
-display_dataframes(disp_req, disp_int, extra_df, df)
+display_dataframes(
+    disp_req.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_cfg.keys())]).data,
+    int_df,
+    extra_df,
+    df
+)
 
 # Legend
 st.markdown(
     "<p><strong>Color Legend:</strong> "
-    "<span style='background-color: lightgreen; padding: 3px;'>Passed</span> "
-    "<span style='background-color: #FFFACD; padding: 3px;'>CR</span> "
-    "<span style='background-color: pink; padding: 3px;'>Not Passed</span></p>",
+    "<span style='background-color: lightgreen; padding:3px;'>Passed</span> "
+    "<span style='background-color: #FFFACD; padding:3px;'>CR</span> "
+    "<span style='background-color: pink; padding:3px;'>Not Passed</span></p>",
     unsafe_allow_html=True
 )
 
@@ -145,28 +115,25 @@ st.subheader("Assign Courses")
 search = st.text_input("Search by Student ID or Name")
 edited = add_assignment_selection(extra_df)
 
-c1,c2,c3 = st.columns(3)
-save_btn    = c1.button("Save Assignments")
-reset_btn   = c2.button("Reset All Assignments")
-download_btn= c3.button("Download Processed Report")
-
-if reset_btn:
+c1, c2, c3 = st.columns(3)
+if c2.button("Reset All Assignments"):
     reset_assignments()
     st.success("All assignments reset.")
     st.experimental_rerun()
+save = c1.button("Save Assignments")
+dl   = c3.button("Download Processed Report")
 
-errors, updated = validate_assignments(edited, per_student_assignments)
+errors, updated = validate_assignments(edited, per_assign)
 if errors:
-    st.error("Resolve the following:")
-    for e in errors:
-        st.write(f"- {e}")
-elif save_btn:
+    st.error("Resolve:")
+    for e in errors: st.write(f"- {e}")
+elif save:
     save_assignments(updated)
     st.success("Assignments saved.")
     st.experimental_rerun()
 
-if download_btn:
-    out = save_report_with_formatting(disp_req, disp_int, datetime.now().strftime("%Y%m%d_%H%M%S"))
+if dl:
+    out = save_report_with_formatting(disp_req, int_df, datetime.now().strftime("%Y%m%d_%H%M%S"))
     st.download_button(
         "Download Excel",
         data=out.getvalue(),
@@ -174,5 +141,6 @@ if download_btn:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+# Footer
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("<div style='text-align:center;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)
