@@ -1,233 +1,157 @@
 import pandas as pd
 import streamlit as st
-from config import get_allowed_assignment_types
+from config import is_passing_grade_from_list, GRADE_ORDER, get_allowed_assignment_types
 
-def read_progress_report(filepath):
-    # ... your existing read logic (unchanged) ...
-    # Make sure you still have your read_progress_report and transform_wide_format functions here
-    raise NotImplementedError("Use your existing code.")
+# Map semester names to order
+SEM_ORDER = {'Spring':1,'Summer':2,'Fall':3}
 
-def read_equivalent_courses(equiv_df):
-    mapping = {}
-    for _, r in equiv_df.iterrows():
-        prim = r['Course'].strip().upper()
-        eqs = [c.strip().upper() for c in str(r['Equivalent']).split(',')]
-        for e in eqs:
-            mapping[e] = prim
-    return mapping
+def select_course_definition(defs, year, sem):
+    """
+    From a list of definitions (each with Effective_From/To),
+    pick the one whose date‑range includes (year,sem). If multiple,
+    choose the one with the latest Effective_From. If none match,
+    fallback to the first definition.
+    """
+    candidates = []
+    for d in defs:
+        ok_from = True
+        ef = d['Effective_From']
+        if ef:
+            e_sem, e_year = ef
+            if (year < e_year) or (year==e_year and SEM_ORDER[sem]<SEM_ORDER[e_sem]):
+                ok_from = False
+        ok_to = True
+        et = d['Effective_To']
+        if et:
+            t_sem, t_year = et
+            if (year > t_year) or (year==t_year and SEM_ORDER[sem]>SEM_ORDER[t_sem]):
+                ok_to = False
+        if ok_from and ok_to:
+            candidates.append(d)
+    if candidates:
+        # pick with max Effective_From date
+        def keyfn(d):
+            ef = d['Effective_From']
+            if not ef:
+                return (0,0)
+            s,y = ef
+            return (y, SEM_ORDER[s])
+        return max(candidates, key=keyfn)
+    return defs[0]
+
+def determine_course_value(grade, course, courses_config, year, semester):
+    """
+    Time‑aware determine value:
+     - Pick appropriate course definition for this (year,semester).
+     - Use its PassingGrades and Credits.
+     - Then same logic: if grade missing→NR; if ""→CR; else test passing via is_passing_grade_from_list.
+    """
+    defs = courses_config.get(course)
+    if not defs:
+        st.error(f"No config for course {course}")
+        return "NR"
+    cfg = select_course_definition(defs, year, semester)
+    credits = cfg['Credits']
+    pass_str = cfg['PassingGrades']
+    if pd.isna(grade):
+        return "NR"
+    if grade=="":
+        return f"CR | {credits}"
+    tokens = [g.strip().upper() for g in grade.split(',')]
+    passed = any(is_passing_grade_from_list(tok,pass_str) for tok in tokens)
+    toklist = ", ".join(tokens)
+    if credits>0:
+        return f"{toklist} | {credits}" if passed else f"{toklist} | 0"
+    else:
+        return f"{toklist} | PASS" if passed else f"{toklist} | FAIL"
 
 def process_progress_report(
     df,
-    target_courses,
-    intensive_courses,
+    target_cfg,
+    intensive_cfg,
     per_student_assignments=None,
-    equivalent_courses_mapping=None,
-    course_rules=None
+    equivalent_courses_mapping=None
 ):
+    # Map equivalents
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
-    if course_rules is None:
-        course_rules = {}
-
-    # 1) compute numeric semester value
-    sem_map = {'Spring':1,'Summer':2,'Fall':3}
-    df['SemValue'] = df['Year'].astype(int)*10 + df['Semester'].map(sem_map)
-
-    # 2) map equivalents
-    df['Mapped Course'] = df['Course'].apply(lambda c: equivalent_courses_mapping.get(c, c))
-
-    # 3) apply S.C.E/F.E.C assignments
+    df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x,x))
+    # Apply S.C.E/F.E.C...
     if per_student_assignments:
         allowed = get_allowed_assignment_types()
         def map_assign(r):
-            sid = str(r['ID']); c = r['Course']; m = r['Mapped Course']
+            sid,str_course = str(r['ID']), r['Course']
             if sid in per_student_assignments:
+                assigns = per_student_assignments[sid]
                 for t in allowed:
-                    if per_student_assignments[sid].get(t)==c:
+                    if assigns.get(t)==str_course:
                         return t
-            return m
-        df['Mapped Course'] = df.apply(map_assign, axis=1)
+            return r['Mapped Course']
+        df['Mapped Course'] = df.apply(map_assign,axis=1)
+    # Split into required/intensive/extra
+    req_df = df[df['Mapped Course'].isin(target_cfg)]
+    int_df = df[df['Mapped Course'].isin(intensive_cfg)]
+    extra_df = df[~df['Mapped Course'].isin(target_cfg) & ~df['Mapped Course'].isin(intensive_cfg)]
+    # Pivot
+    def pivot_and_process(group_df, cfg_dict):
+        piv = group_df.pivot_table(
+            index=['ID','NAME'], columns='Mapped Course', values='Grade',
+            aggfunc=lambda x: ', '.join(x.astype(str))
+        ).reset_index()
+        # Ensure all columns exist
+        for c in cfg_dict:
+            if c not in piv.columns:
+                piv[c] = None
+        # Apply determine_course_value
+        for c in cfg_dict:
+            piv[c] = piv.apply(
+                lambda r: determine_course_value(
+                    r[c], c, cfg_dict, int(r['Year']), r['Semester']
+                ),
+                axis=1
+            )
+        return piv[['ID','NAME'] + list(cfg_dict.keys())]
+    req_piv = pivot_and_process(req_df, target_cfg)
+    int_piv = pivot_and_process(int_df, intensive_cfg)
+    # Build extra list
+    extra_list = sorted(extra_df['Course'].unique())
+    return req_piv, int_piv, extra_df, extra_list
 
-    # 4) determine PassedFlag based on effective rules
-    def passed(r):
-        course = r['Mapped Course']
-        g = str(r['Grade']).strip().upper()
-        sv = r['SemValue']
-        rules = course_rules.get(course, [])
-        # find rule with max eff <= sv
-        applicable = [rule for rule in rules if rule['eff']<=sv]
-        if applicable:
-            rule = max(applicable, key=lambda x:x['eff'])
-        elif rules:
-            rule = rules[0]
-        else:
-            return False
-        return g in rule['passing_grades']
-
-    df['PassedFlag'] = df.apply(passed, axis=1)
-
-    # 5) split into extra/target/intensive
-    extra = df[
-        ~df['Mapped Course'].isin(target_courses) &
-        ~df['Mapped Course'].isin(intensive_courses)
-    ]
-    targ = df[df['Mapped Course'].isin(target_courses)]
-    inten = df[df['Mapped Course'].isin(intensive_courses)]
-
-    # 6) pivot grades & flags
-    pg = targ.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='Grade',
-        aggfunc=lambda x: ', '.join(filter(pd.notna, map(str,x)))
-    ).reset_index()
-    pp = targ.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='PassedFlag',
-        aggfunc='any'
-    ).reset_index()
-
-    ipg = inten.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='Grade',
-        aggfunc=lambda x: ', '.join(filter(pd.notna, map(str,x)))
-    ).reset_index()
-    ipp = inten.pivot_table(
-        index=['ID','NAME'],
-        columns='Mapped Course',
-        values='PassedFlag',
-        aggfunc='any'
-    ).reset_index()
-
-    # 7) ensure all columns present
-    for c in target_courses:
-        if c not in pg: pg[c]=None
-        if c not in pp: pp[c]=False
-    for c in intensive_courses:
-        if c not in ipg: ipg[c]=None
-        if c not in ipp: ipp[c]=False
-
-    # 8) build final DataFrames: "grade tokens | credits or 0"
-    def merge_row(g_row, f_row, course_dict):
-        out={}
-        for course, cred in course_dict.items():
-            gs = g_row.get(course) or ''
-            ok = bool(f_row.get(course))
-            if gs=='':
-                cell = 'NR'
-            else:
-                cell = f"{gs} | {cred if ok else 0}"
-            out[course] = cell
-        return out
-
-    req_out = pg[['ID','NAME']].copy()
-    for i, r in pg.iterrows():
-        flags = pp.iloc[i]
-        rowmap = merge_row(r, flags, target_courses)
-        for k,v in rowmap.items():
-            req_out.at[i,k] = v
-
-    int_out = ipg[['ID','NAME']].copy()
-    for i, r in ipg.iterrows():
-        flags = ipp.iloc[i]
-        rowmap = merge_row(r, flags, intensive_courses)
-        for k,v in rowmap.items():
-            int_out.at[i,k] = v
-
-    extra_list = sorted(extra['Course'].unique())
-    return req_out, int_out, extra, extra_list
-
-
-
-def calculate_credits(row, courses_dict):
-    completed, registered, remaining = 0, 0, 0
-    total = 0
-    for course, info in courses_dict.items():
-        credit = info["Credits"]
-        total += credit
-        value = row.get(course, "")
-        if isinstance(value, str):
-            up_val = value.upper()
-            if up_val.startswith("CR"):
-                registered += credit
-            elif up_val.startswith("NR"):
-                remaining += credit
-            else:
-                parts = value.split("|")
-                if len(parts) == 2:
-                    right = parts[1].strip()
-                    try:
-                        num = int(right)
-                        if num > 0:
-                            completed += credit
-                        else:
-                            remaining += credit
-                    except ValueError:
-                        if right.upper() == "PASS":
-                            # 0-credit passed; no credit to add, but considered passed
-                            pass
-                        else:
-                            remaining += credit
-                else:
-                    remaining += credit
-        else:
-            remaining += credit
-    return pd.Series([completed, registered, remaining, total],
-                     index=["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"])
-
-def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
-    import io
-    from openpyxl import Workbook
-    from openpyxl.utils.dataframe import dataframe_to_rows
-    from openpyxl.styles import PatternFill, Font, Alignment
-    from config import cell_color
-    output = io.BytesIO()
-    workbook = Workbook()
-    ws_req = workbook.active
-    ws_req.title = "Required Courses"
-    light_green = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-    pink = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
-    for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
-        for c_idx, value in enumerate(row, 1):
-            cell = ws_req.cell(row=r_idx, column=c_idx, value=value)
-            if r_idx == 1:
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                if value == "c":
-                    cell.fill = light_green
-                elif value == "":
-                    cell.fill = pink
-                else:
-                    style = cell_color(str(value))
-                    if "lightgreen" in style:
-                        cell.fill = light_green
-                    elif "#FFFACD" in style:
-                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+def calculate_credits(row, courses_config, year, semester):
+    """
+    For each required/intensive course in courses_config,
+    recalc completed, registered, remaining, total exactly as before,
+    but using time‑aware credits.
+    """
+    comp = reg = rem = tot = 0
+    for course, defs in courses_config.items():
+        cfg = select_course_definition(defs, year, semester)
+        cred = cfg['Credits']
+        tot += cred
+        val = row.get(course,'')
+        if isinstance(val,str) and val.upper().startswith('CR'):
+            reg += cred
+        elif isinstance(val,str) and val.upper().startswith('NR'):
+            rem += cred
+        elif isinstance(val,str):
+            parts = val.split('|')
+            if len(parts)==2:
+                right = parts[1].strip()
+                try:
+                    num = int(right)
+                    if num>0:
+                        comp += cred
                     else:
-                        cell.fill = pink
-    ws_int = workbook.create_sheet(title="Intensive Courses")
-    for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
-        for c_idx, value in enumerate(row, 1):
-            cell = ws_int.cell(row=r_idx, column=c_idx, value=value)
-            if r_idx == 1:
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            else:
-                if value == "c":
-                    cell.fill = light_green
-                elif value == "":
-                    cell.fill = pink
-                else:
-                    style = cell_color(str(value))
-                    if "lightgreen" in style:
-                        cell.fill = light_green
-                    elif "#FFFACD" in style:
-                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+                        rem += cred
+                except ValueError:
+                    if right.upper()=='PASS':
+                        # 0-credit passed
+                        pass
                     else:
-                        cell.fill = pink
-    workbook.save(output)
-    output.seek(0)
-    return output
+                        rem += cred
+            else:
+                rem += cred
+        else:
+            rem += cred
+    return pd.Series([comp,reg,rem,tot],
+                     index=['# of Credits Completed','# Registered','# Remaining','Total Credits'])
