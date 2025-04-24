@@ -7,29 +7,14 @@ from data_processing import (
     read_equivalent_courses
 )
 from ui_components import display_dataframes, add_assignment_selection
-from assignment_utils import (
-    load_assignments,
-    save_assignments,
-    validate_assignments,
-    reset_assignments
-)
+from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
 from datetime import datetime
 import os
-<<<<<<< HEAD
 from config import get_allowed_assignment_types, GRADE_ORDER, extract_primary_grade_from_full_value, cell_color
-=======
-
-from config import (
-    get_allowed_assignment_types,
-    extract_primary_grade_from_full_value,
-    cell_color
-)
->>>>>>> parent of a8b67f1 (4)
 
 st.title("View Reports")
 st.markdown("---")
 
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -43,13 +28,9 @@ st.markdown("---")
 >>>>>>> parent of abfac76 (3)
 =======
 >>>>>>> parent of dd799ab (Revert "4")
-=======
-# Must have raw data
->>>>>>> parent of a8b67f1 (4)
 if "raw_df" not in st.session_state:
-    st.warning("Upload data first.")
+    st.warning("No data available. Please upload data first.")
     st.stop()
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 df = st.session_state["raw_df"]
@@ -92,21 +73,6 @@ per_assign = load_assignments()
 
 # Load equivalent courses safely
 >>>>>>> parent of dd799ab (Revert "4")
-=======
-
-df = st.session_state["raw_df"]
-target_cfg = st.session_state.get("target_courses_config")
-intensive_cfg = st.session_state.get("intensive_courses_config")
-
-if not target_cfg or not intensive_cfg:
-    st.warning("Define courses in 'Customize Courses'.")
-    st.stop()
-
-# Load assignments
-per_assign = load_assignments()
-
-# Load or create equivalent_courses.csv
->>>>>>> parent of a8b67f1 (4)
 eq_path = "equivalent_courses.csv"
 if os.path.exists(eq_path):
     try:
@@ -135,7 +101,6 @@ else:
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 # 4) Process
 full_req, full_int, extra_df, _ = process_progress_report(
     df,
@@ -144,17 +109,11 @@ full_req, full_int, extra_df, _ = process_progress_report(
     per_student_assignments=per_student,
     equivalent_courses_mapping=eq_map,
     course_rules=rules
-=======
-# Process
-req_df, int_df, extra_df, _ = process_progress_report(
-    df, target_cfg, intensive_cfg, per_assign, equiv_map
->>>>>>> parent of a8b67f1 (4)
 )
 =======
 =======
 # (Reload buttons have been removed because they are now in the Customize Courses page.)
 
-<<<<<<< HEAD
 <<<<<<< HEAD
 if "raw_df" not in st.session_state:
     st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
@@ -167,16 +126,6 @@ credit_summ = req_df.apply(lambda r: calculate_credits(r, credits_static), axis=
 req_df = pd.concat([req_df, credit_summ], axis=1)
 
 # Primary‑grade precompute
-=======
-# Static credits dict for summary
-credits_static = {c: cfgs[0]['Credits'] for c, cfgs in target_cfg.items()}
-
-# Calculate credits summary
-credit_summ = req_df.apply(lambda r: calculate_credits(r, credits_static), axis=1)
-req_df = pd.concat([req_df, credit_summ], axis=1)
-
-# Precompute primary-grade view
->>>>>>> parent of a8b67f1 (4)
 primary_req = req_df.copy()
 for c in target_cfg:
     primary_req[c] = primary_req[c].apply(lambda v: extract_primary_grade_from_full_value(v))
@@ -187,7 +136,6 @@ show_comp = st.checkbox("Show Completed/Not Completed Only", value=False)
 
 if show_all:
     disp_req = req_df.copy()
-<<<<<<< HEAD
 >>>>>>> parent of dd799ab (Revert "4")
 else:
     df = st.session_state["raw_df"]
@@ -337,37 +285,22 @@ def collapse(val):
         except:
             return "c" if p.upper()=="PASS" else ""
     return val
-=======
-else:
-    disp_req = primary_req.copy()
->>>>>>> parent of a8b67f1 (4)
 
-if show_comp:
-    def collapse(v):
-        if not isinstance(v, str): return v
-        parts = v.split("|")
-        if len(parts)==2:
-            right = parts[1].strip()
-            try:
-                return "c" if int(right)>0 else ""
-            except ValueError:
-                return "c" if right.upper()=="PASS" else ""
-        return v
-    for c in target_cfg:
-        disp_req[c] = disp_req[c].apply(collapse)
+def prepare(df_full, df_prim):
+    df = df_full if show_all else df_prim
+    if show_only:
+        for col in target_cfg:
+            df[col] = df[col].apply(collapse)
+        for col in intensive_cfg:
+            df[col] = df[col].apply(collapse)
+    return df
+
+disp_req = prepare(req_df, prim_req)
+disp_int = prepare(int_df, prim_int)
 
 # Display
-<<<<<<< HEAD
 >>>>>>> parent of 98d5b2a (3)
 display_dataframes(disp_req, disp_int, extra_df, df)
-=======
-display_dataframes(
-    disp_req.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_cfg.keys())]).data,
-    int_df,
-    extra_df,
-    df
-)
->>>>>>> parent of a8b67f1 (4)
 
 =======
 if show_comp:
@@ -405,18 +338,12 @@ st.markdown(
 <<<<<<< HEAD
 =======
     "<p><strong>Color Legend:</strong> "
-<<<<<<< HEAD
     "<span style='background-color: lightgreen; padding: 3px;'>Passed</span> "
     "<span style='background-color: #FFFACD; padding: 3px;'>CR</span> "
     "<span style='background-color: pink; padding: 3px;'>Not Passed</span></p>",
 >>>>>>> parent of 98d5b2a (3)
 =======
 >>>>>>> parent of abfac76 (3)
-=======
-    "<span style='background-color: lightgreen; padding:3px;'>Passed</span> "
-    "<span style='background-color: #FFFACD; padding:3px;'>CR</span> "
-    "<span style='background-color: pink; padding:3px;'>Not Passed</span></p>",
->>>>>>> parent of a8b67f1 (4)
     unsafe_allow_html=True
 )
 =======
@@ -433,7 +360,6 @@ st.markdown(
         # (Instruction text removed as requested.)
 >>>>>>> parent of e37c21f (e)
 
-<<<<<<< HEAD
         # Layout for the assignment section:
         # First, a search bar.
         search_bar = st.text_input("Search by Student ID or Name", help="Filter extra courses by student or course")
@@ -488,17 +414,10 @@ reset_btn = c2.button("Reset All Assignments")
 dl_btn    = c3.button("Download Processed Report")
 
 if reset_btn:
-=======
-c1, c2, c3 = st.columns(3)
-if c2.button("Reset All Assignments"):
->>>>>>> parent of a8b67f1 (4)
     reset_assignments()
     st.success("Assignments reset.")
     st.experimental_rerun()
-save = c1.button("Save Assignments")
-dl   = c3.button("Download Processed Report")
 
-<<<<<<< HEAD
 errs, updated = validate_assignments(edited, per_student)
 if errs:
     st.error("Resolve errors:")
@@ -539,18 +458,10 @@ elif save_btn:
         st.write(f"- {e}")
 elif save:
 >>>>>>> parent of dd799ab (Revert "4")
-=======
-errors, updated = validate_assignments(edited, per_assign)
-if errors:
-    st.error("Resolve:")
-    for e in errors: st.write(f"- {e}")
-elif save:
->>>>>>> parent of a8b67f1 (4)
     save_assignments(updated)
     st.success("Assignments saved.")
     st.experimental_rerun()
 
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 if dl_btn:
@@ -561,10 +472,6 @@ if download_btn:
 if dl_btn:
 >>>>>>> parent of abfac76 (3)
     out = save_report_with_formatting(disp_req, disp_int, datetime.now().strftime("%Y%m%d_%H%M%S"))
-=======
-if dl:
-    out = save_report_with_formatting(disp_req, int_df, datetime.now().strftime("%Y%m%d_%H%M%S"))
->>>>>>> parent of a8b67f1 (4)
     st.download_button(
         "Download Excel",
         data=out.getvalue(),
@@ -574,16 +481,12 @@ if dl:
 
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 # 10) Footer
 =======
 >>>>>>> parent of 98d5b2a (3)
 =======
 # 10) Footer
 >>>>>>> parent of abfac76 (3)
-=======
-# Footer
->>>>>>> parent of a8b67f1 (4)
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("<div style='text-align:center;'>Developed by Dr. Zahi Abdul Sater</div>", unsafe_allow_html=True)
 =======

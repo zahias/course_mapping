@@ -63,19 +63,14 @@ st.write(
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
     "Upload a custom CSV to define your courses. Required columns:\n\n"
-=======
-    "Upload a custom CSV to define courses configuration. Required columns:\n\n"
->>>>>>> parent of a8b67f1 (4)
     "- `Course`\n"
     "- `Credits`\n"
     "- `PassingGrades` (comma‑separated)\n"
     "- `Type` (`Required` or `Intensive`)\n\n"
-    "**Optional** columns:\n\n"
+    "Optional columns to handle time‑based rules:\n\n"
     "- `Effective_From` (e.g. `FALL-2016`)\n"
     "- `Effective_To`   (e.g. `SPRING-2022`)\n\n"
-<<<<<<< HEAD
     "If you leave Effective dates blank, the rule applies for all semesters."
 =======
     "Upload a custom CSV to define courses configuration. "
@@ -92,9 +87,6 @@ st.write(
     "'Course', 'Credits', 'PassingGrades', and 'Type'. "
     "The 'PassingGrades' column is a comma-separated list of all acceptable passing grades for that course."
 >>>>>>> parent of e37c21f (e)
-=======
-    "If you omit Effective dates, the rule applies for all semesters."
->>>>>>> parent of a8b67f1 (4)
 )
 =======
 >>>>>>> parent of abfac76 (3)
@@ -105,24 +97,18 @@ with st.expander("Course Configuration Options", expanded=True):
 <<<<<<< HEAD
 <<<<<<< HEAD
     uploaded = st.file_uploader("Upload Courses Configuration CSV", type="csv")
-<<<<<<< HEAD
 
     col1, col2 = st.columns(2)
     with col1:
 <<<<<<< HEAD
-=======
-    c1, c2 = st.columns(2)
-    with c1:
->>>>>>> parent of a8b67f1 (4)
         if st.button("Download Template"):
             tmpl = pd.DataFrame({
-                'Course': ['ACCT201', 'ACCT201'],
-                'Credits': [3, 3],
+                'Course': ['ACCT201','ACCT201'],
+                'Credits': [3,3],
                 'PassingGrades': [
                     'A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T',
                     'A+,A,A-'
                 ],
-<<<<<<< HEAD
                 'Type': ['Required','Required'],
                 'Effective_From': ['FALL-2016','FALL-2023'],
                 'Effective_To': ['SPRING-2022','']
@@ -159,11 +145,6 @@ with st.expander("Course Configuration Options", expanded=True):
                 'Type': ['Required', 'Required', 'Required', 'Intensive'],
                 'EffectiveSemester': ['', '', 'Fall-2023', '']
 >>>>>>> parent of 02f20b1 (e)
-=======
-                'Type': ['Required', 'Required'],
-                'Effective_From': ['FALL-2016', 'FALL-2023'],
-                'Effective_To': ['SPRING-2022', '']
->>>>>>> parent of a8b67f1 (4)
             })
             csv_bytes = template_df.to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -173,7 +154,6 @@ with st.expander("Course Configuration Options", expanded=True):
                 file_name="courses_template.csv",
                 mime="text/csv"
             )
-<<<<<<< HEAD
 
     with col2:
 <<<<<<< HEAD
@@ -206,21 +186,9 @@ with st.expander("Course Configuration Options", expanded=True):
                     download_file(service,fid,"courses_config.csv")
                     st.success("Reloaded courses_config.csv from Drive")
 >>>>>>> parent of 98d5b2a (3)
-=======
-    with c2:
-        if st.button("Reload from Google Drive"):
-            try:
-                creds = authenticate_google_drive()
-                service = build("drive", "v3", credentials=creds)
-                fid = search_file(service, "courses_config.csv")
-                if fid:
-                    download_file(service, fid, "courses_config.csv")
-                    st.success("Downloaded latest courses_config.csv from Drive.")
->>>>>>> parent of a8b67f1 (4)
                 else:
                     st.error("courses_config.csv not found on Google Drive.")
             except Exception as e:
-<<<<<<< HEAD
 <<<<<<< HEAD
                 st.error(f"Error reloading from Google Drive: {e}")
 
@@ -392,31 +360,11 @@ with st.expander("Course Configuration Options", expanded=True):
         except Exception as e:
             st.error(f"Error reading the uploaded file: {e}")
 >>>>>>> parent of e37c21f (e)
-=======
-                st.error(f"Error reloading from Drive: {e}")
-
-    # Load DataFrame
-    if uploaded is not None:
-        df = pd.read_csv(uploaded)
-        df.to_csv("courses_config.csv", index=False)
-        try:
-            creds = authenticate_google_drive()
-            service = build("drive", "v3", credentials=creds)
-            fid = search_file(service, "courses_config.csv")
-            if fid:
-                update_file(service, fid, "courses_config.csv")
-            else:
-                upload_file(service, "courses_config.csv", "courses_config.csv")
-            st.info("Synced courses_config.csv to Google Drive.")
-        except Exception as e:
-            st.error(f"Error syncing to Drive: {e}")
->>>>>>> parent of a8b67f1 (4)
     elif os.path.exists("courses_config.csv"):
         courses_df = pd.read_csv("courses_config.csv")
     else:
         courses_df = None
 
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -440,18 +388,11 @@ with st.expander("Course Configuration Options", expanded=True):
 =======
             st.error(f"Missing columns in CSV: {required_cols - set(df.columns)}")
 >>>>>>> parent of abfac76 (3)
-=======
-    if df is not None:
-        required = {'Course', 'Credits', 'PassingGrades', 'Type'}
-        if not required.issubset(df.columns):
-            st.error(f"Missing columns: {required - set(df.columns)}")
->>>>>>> parent of a8b67f1 (4)
         else:
             # Helper to parse Effective_From/To into tuples
             def parse_eff(val):
                 if pd.isna(val) or not str(val).strip():
                     return None
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
                 sem, yr = val.split('-', 1)
@@ -468,19 +409,15 @@ with st.expander("Course Configuration Options", expanded=True):
                 return (sem.title(), int(yr))
 >>>>>>> parent of abfac76 (3)
 
-=======
-                sem, yr = val.split('-', 1)
-                return (sem.strip().title(), int(yr))
->>>>>>> parent of a8b67f1 (4)
             target_cfg = {}
             intensive_cfg = {}
+
             for _, row in df.iterrows():
                 code = row['Course'].strip().upper()
                 entry = {
                     'Credits': int(row['Credits']),
                     'PassingGrades': row['PassingGrades'].strip(),
                     'Type': row['Type'].strip().title(),
-<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
                     'Effective_From': parse_eff(row.get('Effective_From', '')),
@@ -493,27 +430,17 @@ with st.expander("Course Configuration Options", expanded=True):
                     'Effective_From': parse_eff(row.get('Effective_From', '')),
                     'Effective_To':   parse_eff(row.get('Effective_To', ''))
 >>>>>>> parent of abfac76 (3)
-=======
-                    'Effective_From': parse_eff(row.get('Effective_From','')),
-                    'Effective_To':   parse_eff(row.get('Effective_To',''))
->>>>>>> parent of a8b67f1 (4)
                 }
                 if entry['Type'] == 'Required':
                     target_cfg.setdefault(code, []).append(entry)
                 else:
                     intensive_cfg.setdefault(code, []).append(entry)
-<<<<<<< HEAD
 
 <<<<<<< HEAD
 <<<<<<< HEAD
             st.session_state['target_courses_config'] = target_cfg
             st.session_state['intensive_courses_config'] = intensive_cfg
             st.success("Course configurations loaded into session_state.")
-=======
-            st.session_state['target_courses_config'] = target_cfg
-            st.session_state['intensive_courses_config'] = intensive_cfg
-            st.success("Loaded course configurations.")
->>>>>>> parent of a8b67f1 (4)
     else:
         st.info("No courses_config.csv found—please upload or reload from Drive.")
 =======
@@ -526,7 +453,6 @@ with st.expander("Course Configuration Options", expanded=True):
     else:
 <<<<<<< HEAD
         st.info("Please upload or reload a courses_config.csv.")
-<<<<<<< HEAD
 
 # (Put the "Equivalent Courses" and "Assignment Types" sections here as before.)
 >>>>>>> parent of 98d5b2a (3)
@@ -604,5 +530,3 @@ with st.expander("Assignment Types Configuration", expanded=True):
         st.session_state["allowed_assignment_types"] = new_types
         st.success("Assignment types updated.")
 >>>>>>> parent of e37c21f (e)
-=======
->>>>>>> parent of a8b67f1 (4)
