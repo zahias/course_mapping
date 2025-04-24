@@ -19,17 +19,14 @@ st.markdown("---")
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
-<<<<<<< HEAD
 # 1) Ensure raw data & course lists
 =======
 >>>>>>> parent of 98d5b2a (3)
 =======
 # 1) Ensure raw data & course lists
 >>>>>>> parent of abfac76 (3)
-=======
->>>>>>> parent of dd799ab (Revert "4")
 if "raw_df" not in st.session_state:
-    st.warning("No data available. Please upload data first.")
+    st.warning("Upload data first.")
     st.stop()
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -41,7 +38,6 @@ if target is None or intensive is None:
     st.warning("Define courses in Customize Courses.")
     st.stop()
 
-<<<<<<< HEAD
 # 2) Load assignments
 per_student = load_assignments()
 
@@ -68,11 +64,6 @@ per_student = load_assignments()
 =======
 # 3) Load equivalent courses safely
 >>>>>>> parent of abfac76 (3)
-=======
-per_assign = load_assignments()
-
-# Load equivalent courses safely
->>>>>>> parent of dd799ab (Revert "4")
 eq_path = "equivalent_courses.csv"
 if os.path.exists(eq_path):
     try:
@@ -114,29 +105,8 @@ full_req, full_int, extra_df, _ = process_progress_report(
 =======
 # (Reload buttons have been removed because they are now in the Customize Courses page.)
 
-<<<<<<< HEAD
 if "raw_df" not in st.session_state:
     st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
-=======
-# Static credits lookup (first definition’s credit)
-credits_static = {c: defs[0]['Credits'] for c, defs in target_cfg.items()}
-
-# Append credit summaries
-credit_summ = req_df.apply(lambda r: calculate_credits(r, credits_static), axis=1)
-req_df = pd.concat([req_df, credit_summ], axis=1)
-
-# Primary‑grade precompute
-primary_req = req_df.copy()
-for c in target_cfg:
-    primary_req[c] = primary_req[c].apply(lambda v: extract_primary_grade_from_full_value(v))
-
-# Toggles
-show_all = st.checkbox("Show All Grades", value=True)
-show_comp = st.checkbox("Show Completed/Not Completed Only", value=False)
-
-if show_all:
-    disp_req = req_df.copy()
->>>>>>> parent of dd799ab (Revert "4")
 else:
     df = st.session_state["raw_df"]
     target_courses = st.session_state.get("target_courses")
@@ -150,7 +120,6 @@ else:
             eq_df = pd.read_csv("equivalent_courses.csv")
         equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
 
-<<<<<<< HEAD
 >>>>>>> parent of e37c21f (e)
         # Process the report to get the full detailed view.
         full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
@@ -302,27 +271,6 @@ disp_int = prepare(int_df, prim_int)
 >>>>>>> parent of 98d5b2a (3)
 display_dataframes(disp_req, disp_int, extra_df, df)
 
-=======
-if show_comp:
-    def collapse(v):
-        if not isinstance(v, str):
-            return v
-        parts = v.split("|")
-        if len(parts)==2:
-            right = parts[1].strip()
-            try:
-                return "c" if int(right)>0 else ""
-            except ValueError:
-                return "c" if right.upper()=="PASS" else ""
-        return v
-    for c in target_cfg:
-        disp_req[c] = disp_req[c].apply(collapse)
-
-# Display tables
-display_dataframes(disp_req, int_df, extra_df, df)
-
-# Color legend
->>>>>>> parent of dd799ab (Revert "4")
 st.markdown(
 <<<<<<< HEAD
 =======
@@ -440,7 +388,6 @@ if reset_btn:
 <<<<<<< HEAD
 errors, updated = validate_assignments(edited, per_student_assignments)
 if errors:
-<<<<<<< HEAD
     st.error("Resolve the following:")
     for e in errors:
         st.write(f"- {e}")
@@ -452,12 +399,6 @@ if errs:
     for e in errs: st.write(f"- {e}")
 >>>>>>> parent of abfac76 (3)
 elif save_btn:
-=======
-    st.error("Resolve these errors:")
-    for e in errors:
-        st.write(f"- {e}")
-elif save:
->>>>>>> parent of dd799ab (Revert "4")
     save_assignments(updated)
     st.success("Assignments saved.")
     st.experimental_rerun()

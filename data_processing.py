@@ -256,12 +256,8 @@ from config import get_allowed_assignment_types
 from config import is_passing_grade_from_list, get_allowed_assignment_types
 >>>>>>> parent of abfac76 (3)
 
-<<<<<<< HEAD
 # Academic semester ordering: Fall → Spring → Summer
 SEM_ORDER = {"Fall": 1, "Spring": 2, "Summer": 3}
-=======
-SEM_ORDER = {'Fall':1, 'Spring':2, 'Summer':3}
->>>>>>> parent of dd799ab (Revert "4")
 
 =======
 >>>>>>> parent of abfac76 (3)
@@ -345,7 +341,6 @@ def _term_to_tuple(year: int, semester: str):
 def select_course_definition(defs: list, year: int, semester: str) -> dict:
 =======
 def select_course_definition(defs, year, sem):
-<<<<<<< HEAD
 >>>>>>> parent of 2e22e23 (Update data_processing.py)
     """
     From a list of definitions (each with Effective_From/To),
@@ -493,31 +488,16 @@ def select_course_definition(defs: list, year: int, semester: str) -> dict:
         if ef:
             e_sem, e_year = ef
             if (year < e_year) or (year==e_year and SEM_ORDER[sem]<SEM_ORDER[e_sem]):
-=======
-    candidates = []
-    for d in defs:
-        ef, et = d['Effective_From'], d['Effective_To']
-        ok_from = True
-        if ef:
-            e_sem, e_yr = ef
-            if (year < e_yr) or (year==e_yr and SEM_ORDER[sem] < SEM_ORDER[e_sem]):
->>>>>>> parent of dd799ab (Revert "4")
                 ok_from = False
         ok_to = True
         et = d['Effective_To']
         if et:
-<<<<<<< HEAD
             t_sem, t_year = et
             if (year > t_year) or (year==t_year and SEM_ORDER[sem]>SEM_ORDER[t_sem]):
-=======
-            t_sem, t_yr = et
-            if (year > t_yr) or (year==t_yr and SEM_ORDER[sem] > SEM_ORDER[t_sem]):
->>>>>>> parent of dd799ab (Revert "4")
                 ok_to = False
         if ok_from and ok_to:
             candidates.append(d)
     if candidates:
-<<<<<<< HEAD
         # pick with max Effective_From date
         def keyfn(d):
             ef = d['Effective_From']
@@ -536,44 +516,21 @@ def determine_course_value(grade, course, courses_config, year, semester):
      - Then same logic: if grade missing→NR; if ""→CR; else test passing via is_passing_grade_from_list.
     """
     defs = courses_config.get(course)
-=======
-        # latest Effective_From
-        def keyfn(d):
-            ef = d['Effective_From']
-            return (ef[1], SEM_ORDER[ef[0]]) if ef else (0,0)
-        return max(candidates, key=keyfn)
-    return defs[0]
-
-def determine_course_value(grade, course, courses_cfg, year, semester):
-    defs = courses_cfg.get(course, [])
->>>>>>> parent of dd799ab (Revert "4")
     if not defs:
         st.error(f"No config for course {course}")
         return "NR"
     cfg = select_course_definition(defs, year, semester)
-<<<<<<< HEAD
     credits = cfg['Credits']
     pass_str = cfg['PassingGrades']
-=======
-    credits, passing = cfg['Credits'], cfg['PassingGrades']
->>>>>>> parent of dd799ab (Revert "4")
     if pd.isna(grade):
         return "NR"
     if grade=="":
         return f"CR | {credits}"
-<<<<<<< HEAD
     tokens = [g.strip().upper() for g in grade.split(',')]
     passed = any(is_passing_grade_from_list(tok,pass_str) for tok in tokens)
     toklist = ", ".join(tokens)
     if credits>0:
         return f"{toklist} | {credits}" if passed else f"{toklist} | 0"
-=======
-    tokens = [g.strip().upper() for g in grade.split(',') if g.strip()]
-    passed = any(is_passing_grade_from_list(tok, passing) for tok in tokens)
-    tokstr = ", ".join(tokens)
-    if credits>0:
-        return f"{tokstr} | {credits}" if passed else f"{tokstr} | 0"
->>>>>>> parent of dd799ab (Revert "4")
     else:
         return f"{toklist} | PASS" if passed else f"{toklist} | FAIL"
 =======
@@ -654,7 +611,6 @@ def process_progress_report(
 >>>>>>> parent of abfac76 (3)
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
-<<<<<<< HEAD
     df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x, x))
 
 <<<<<<< HEAD
@@ -999,49 +955,6 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
 <<<<<<< HEAD
         # drop Year & Semester before returning
         return piv.drop(columns=['Year','Semester'])
-=======
-    df['Mapped Course'] = df['Course'].apply(lambda x: equivalent_courses_mapping.get(x,x))
-
-    if per_student_assignments:
-        allowed = get_allowed_assignment_types()
-        def map_assign(r):
-            sid, crs = str(r['ID']), r['Course']
-            if sid in per_student_assignments:
-                for a in allowed:
-                    if per_student_assignments[sid].get(a)==crs:
-                        return a
-            return r['Mapped Course']
-        df['Mapped Course'] = df.apply(map_assign,axis=1)
-
-    req_df = df[df['Mapped Course'].isin(target_cfg)]
-    int_df = df[df['Mapped Course'].isin(intensive_cfg)]
-    extra_df = df[
-        ~df['Mapped Course'].isin(target_cfg) &
-        ~df['Mapped Course'].isin(intensive_cfg)
-    ]
-
-    def pivot_proc(sub, cfg):
-        piv = sub.pivot_table(
-            index=['ID','NAME','Year','Semester'],
-            columns='Mapped Course',
-            values='Grade',
-            aggfunc=lambda x: ', '.join(x.astype(str))
-        ).reset_index()
-        for c in cfg:
-            if c not in piv.columns:
-                piv[c] = None
-        for c in cfg:
-            piv[c] = piv.apply(
-                lambda r: determine_course_value(
-                    r[c], c, cfg, int(r['Year']), r['Semester']
-                ),
-                axis=1
-            )
-        return piv[['ID','NAME'] + list(cfg.keys())]
-
-    req_piv = pivot_proc(req_df, target_cfg)
-    int_piv = pivot_proc(int_df, intensive_cfg)
->>>>>>> parent of dd799ab (Revert "4")
 
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -1049,8 +962,7 @@ def process_progress_report(df, target_courses, intensive_courses, per_student_a
 
 def calculate_credits(row, credits_dict):
     """
-    row: a series containing course columns with values like "A | 3" or "F | 0"
-    credits_dict: {course: credit}
+    Static credit summation. credits_dict maps course->credit (int).
     """
     completed = registered = remaining = 0
     total = sum(credits_dict.values())
@@ -1063,28 +975,25 @@ def calculate_credits(row, credits_dict):
             elif u.startswith("NR"):
                 remaining += cred
             else:
-                parts = val.split("|")
-                if len(parts)==2:
-                    rgh = parts[1].strip()
-                    try:
-                        num = int(rgh)
-                        if num>0:
-                            completed += cred
-                        else:
-                            remaining += cred
-                    except ValueError:
-                        if rgh.upper()=="PASS":
-                            pass
-                        else:
-                            remaining += cred
-                else:
-                    remaining += cred
+                right = val.split("|")[-1].strip()
+                try:
+                    num = int(right)
+                    if num > 0:
+                        completed += cred
+                    else:
+                        remaining += cred
+                except ValueError:
+                    if right.upper() == "PASS":
+                        # 0‐credit passed
+                        pass
+                    else:
+                        remaining += cred
         else:
             remaining += cred
 
     return pd.Series(
         [completed, registered, remaining, total],
-        index=['# of Credits Completed','# Registered','# Remaining','Total Credits']
+        index=['# of Credits Completed', '# Registered', '# Remaining', 'Total Credits']
     )
 <<<<<<< HEAD
 =======
