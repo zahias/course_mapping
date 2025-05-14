@@ -22,18 +22,12 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# For backward compatibility.
+# Alias for backward compatibility.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
     Returns a CSS style string for cell background.
-    
-    If the cell value starts with "CR" returns light yellow (#FFFACD).
-    Else, splits value by "|" and examines the right-hand side:
-      - If numeric and >0, returns light green; if 0 returns pink.
-      - If nonnumeric ("PASS"/"FAIL") returns light green for PASS and pink for FAIL.
-    Otherwise, falls back to light green if any token in the left-hand side is in GRADE_ORDER.
     """
     if not isinstance(value, str):
         return ""
@@ -58,21 +52,48 @@ def cell_color(value: str) -> str:
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    Given a full processed grade string (e.g. "B+, A, C | 3" or "A, B | PASS"),
-    extracts the primary grade (the first found in GRADE_ORDER) and appends the credit part.
-    Returns string "PrimaryGrade | Credit".
+    From a detailed cell like "F | 0, CR | 3, C- | 0", picks:
+      1) any CR segment first,
+      2) then the highest-counted grade in GRADE_ORDER,
+      3) then any PASS-type,
+      4) else the first segment.
+
+    Returns "Grade | Credit" for that segment.
     """
     if not isinstance(value, str):
         return value
-    parts = value.split("|")
-    if len(parts) < 2:
+
+    # Split into segments by comma *between* full segments
+    segments = [seg.strip() for seg in value.split(",")]
+
+    parsed = []
+    for seg in segments:
+        if "|" in seg:
+            left, right = seg.split("|", 1)
+            grades = [g.strip().upper() for g in left.split(",") if g.strip()]
+            credit = right.strip()
+            parsed.append((grades, credit))
+
+    if not parsed:
         return value
-    grades_part = parts[0].strip()
-    credit_part = parts[1].strip()
-    if not grades_part:
-        return ""
-    tokens = [g.strip().upper() for g in grades_part.split(",") if g.strip()]
+
+    # 1) CR over everything
+    for grades, credit in parsed:
+        if any(g == "CR" for g in grades):
+            return f"CR | {credit}"
+
+    # 2) Highest‐priority counted grade
     for grade in GRADE_ORDER:
-        if grade in tokens:
-            return f"{grade} | {credit_part}"
-    return f"{tokens[0]} | {credit_part}" if tokens else ""
+        for grades, credit in parsed:
+            if grade in grades:
+                return f"{grade} | {credit}"
+
+    # 3) PASS‐type grades
+    for grades, credit in parsed:
+        for g in grades:
+            if g in {"P", "P*", "WP", "T", "PASS"}:
+                return f"{g} | {credit}"
+
+    # 4) Fallback to first segment
+    grades, credit = parsed[0]
+    return f"{grades[0]} | {credit}" if grades else f"{parsed[0][1]}"
