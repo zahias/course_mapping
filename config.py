@@ -1,16 +1,7 @@
-# config.py
-
 import streamlit as st
 
-# Global grade order (highest → lowest).  
-# We’ve prepended "CR" so that any "CR" beats even "A+" in primary‐grade view.
-GRADE_ORDER = [
-    "CR",
-    "A+","A","A-",
-    "B+","B","B-",
-    "C+","C","C-",
-    "D+","D","D-"
-]
+# Global grade order (from highest to lowest)
+GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"]
 
 def get_allowed_assignment_types():
     """
@@ -31,18 +22,24 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# Alias for backward compatibility.
+# For backward compatibility.
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
     Returns a CSS style string for cell background.
+    
+    If the cell value starts with "CR" returns light yellow (#FFFACD).
+    Else, splits value by "|" and examines the right-hand side:
+      - If numeric and >0, returns light green; if 0 returns pink.
+      - If nonnumeric ("PASS"/"FAIL") returns light green for PASS and pink for FAIL.
+    Otherwise, falls back to light green if any token in the left-hand side is in GRADE_ORDER.
     """
     if not isinstance(value, str):
         return ""
-    v = value.strip().upper()
-    if v.startswith("CR"):
-        return "background-color: #FFFACD"  # light yellow
+    value = value.strip()
+    if value.upper().startswith("CR"):
+        return "background-color: #FFFACD"
     parts = value.split("|")
     if len(parts) == 2:
         right = parts[1].strip()
@@ -50,27 +47,26 @@ def cell_color(value: str) -> str:
             num = int(right)
             return "background-color: lightgreen" if num > 0 else "background-color: pink"
         except ValueError:
-            if right == "PASS":
+            if right.upper() == "PASS":
                 return "background-color: lightgreen"
-            if right == "FAIL":
+            elif right.upper() == "FAIL":
                 return "background-color: pink"
-    # fallback: any counted grade in the left side?
-    tokens = [t.strip() for t in parts[0].split(",") if t.strip()]
-    for grade in GRADE_ORDER:
-        if grade in tokens:
-            return "background-color: lightgreen"
+    tokens = [g.strip().upper() for g in parts[0].split(",") if g.strip()]
+    if any(g in GRADE_ORDER for g in tokens):
+        return "background-color: lightgreen"
     return "background-color: pink"
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    From a full cell string like "F | 0, CR | 3" or "B+, C- | 3", picks the first token
-    in GRADE_ORDER (now with "CR" highest), and re-appends the credit part.
+    Given a full processed grade string (e.g. "B+, A, C | 3" or "A, B | PASS"),
+    extracts the primary grade (the first found in GRADE_ORDER) and appends the credit part.
+    Returns string "PrimaryGrade | Credit".
     """
     if not isinstance(value, str):
         return value
     parts = value.split("|")
     if len(parts) < 2:
-        return value  # nothing to collapse
+        return value
     grades_part = parts[0].strip()
     credit_part = parts[1].strip()
     if not grades_part:
@@ -79,5 +75,4 @@ def extract_primary_grade_from_full_value(value: str) -> str:
     for grade in GRADE_ORDER:
         if grade in tokens:
             return f"{grade} | {credit_part}"
-    # fallback to first seen token
     return f"{tokens[0]} | {credit_part}" if tokens else ""
