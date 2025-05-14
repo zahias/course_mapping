@@ -4,20 +4,31 @@ import streamlit as st
 GRADE_ORDER = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"]
 
 def get_allowed_assignment_types():
+    """
+    Returns the list of assignment types.
+    Uses session state if available; otherwise returns the default list.
+    """
     if "allowed_assignment_types" in st.session_state:
         return st.session_state["allowed_assignment_types"]
     return ["S.C.E", "F.E.C"]
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
+    """
+    Checks if the given grade is in the comma-separated list of passing grades.
+    """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(",")]
     except Exception:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-is_passing_grade = is_passing_grade_from_list  # alias for backward compatibility
+# Alias for backward compatibility.
+is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
+    """
+    Returns a CSS style string for cell background.
+    """
     if not isinstance(value, str):
         return ""
     v = value.strip()
@@ -53,18 +64,18 @@ def extract_primary_grade_from_full_value(value: str) -> str:
     for entry in entries:
         parts = [p.strip() for p in entry.split("|")]
         grade_tok = parts[0].upper()
-        credit_tok = parts[1] if len(parts) > 1 else ""
-        parsed.append((grade_tok, credit_tok))
+        cred_tok  = parts[1] if len(parts) > 1 else ""
+        parsed.append((grade_tok, cred_tok))
 
     # 2) Define lookup order: CR first, then the normal grade hierarchy
     lookup_order = ["CR"] + GRADE_ORDER
 
     # 3) Find and return the first matching token
-    for grade in lookup_order:
-        for tok, cred in parsed:
-            if tok == grade:
-                return f"{tok} | {cred}"
+    for key in lookup_order:
+        for gt, cr in parsed:
+            if gt == key:
+                return f"{gt} | {cr}"
 
     # 4) Fallback: return the very first entry
-    tok, cred = parsed[0]
-    return f"{tok} | {cred}"
+    gt, cr = parsed[0]
+    return f"{gt} | {cr}"
