@@ -72,16 +72,22 @@ def read_equivalent_courses(equivalent_courses_df):
             mapping[eq] = primary
     return mapping
 
-def process_progress_report(df, target_courses, intensive_courses,
-                            per_student_assignments=None,
-                            equivalent_courses_mapping=None):
+def process_progress_report(
+    df,
+    target_courses,
+    intensive_courses,
+    per_student_assignments=None,
+    equivalent_courses_mapping=None
+):
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
 
+    # 1) Map equivalent courses
     df["Mapped Course"] = df["Course"].apply(
         lambda x: equivalent_courses_mapping.get(x, x)
     )
 
+    # 2) Apply S.C.E. / F.E.C. overrides
     if per_student_assignments:
         allowed_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -96,6 +102,17 @@ def process_progress_report(df, target_courses, intensive_courses,
             return mapped
         df["Mapped Course"] = df.apply(map_assignment, axis=1)
 
+    # 3) **NEW STEP**: Pre‐format **each row** into a “ProcessedValue” (so CR isn’t lost)
+    df["ProcessedValue"] = df.apply(
+        lambda r: determine_course_value(
+            r["Grade"],
+            r["Mapped Course"],
+            {**target_courses, **intensive_courses}
+        ),
+        axis=1
+    )
+
+    # 4) Identify extra, target, and intensive
     extra_courses_df = df[
         (~df["Mapped Course"].isin(target_courses.keys())) &
         (~df["Mapped Course"].isin(intensive_courses.keys()))
@@ -103,35 +120,32 @@ def process_progress_report(df, target_courses, intensive_courses,
     target_df = df[df["Mapped Course"].isin(target_courses.keys())]
     intensive_df = df[df["Mapped Course"].isin(intensive_courses.keys())]
 
+    # 5) Pivot **on ProcessedValue**, not raw Grade
     pivot_df = target_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
-        values="Grade",
-        aggfunc=lambda x: ", ".join(map(str, filter(pd.notna, x)))
+        values="ProcessedValue",
+        aggfunc=lambda x: ", ".join(x)
     ).reset_index()
     intensive_pivot_df = intensive_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
-        values="Grade",
-        aggfunc=lambda x: ", ".join(map(str, filter(pd.notna, x)))
+        values="ProcessedValue",
+        aggfunc=lambda x: ", ".join(x)
     ).reset_index()
 
+    # 6) Ensure all columns exist
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = None
-        pivot_df[course] = pivot_df[course].apply(
-            lambda grade: determine_course_value(grade, course, target_courses)
-        )
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
             intensive_pivot_df[course] = None
-        intensive_pivot_df[course] = intensive_pivot_df[course].apply(
-            lambda grade: determine_course_value(grade, course, intensive_courses)
-        )
 
     result_df = pivot_df[["ID", "NAME"] + list(target_courses.keys())]
     intensive_result_df = intensive_pivot_df[["ID", "NAME"] + list(intensive_courses.keys())]
 
+    # 7) Remove assigned from extras (unchanged logic)
     if per_student_assignments:
         assigned = []
         for sid, assigns in per_student_assignments.items():
@@ -139,7 +153,8 @@ def process_progress_report(df, target_courses, intensive_courses,
                 assigned.append((sid, course))
         extra_courses_df = extra_courses_df[
             ~extra_courses_df.apply(
-                lambda row: (str(row["ID"]), row["Course"]) in assigned, axis=1
+                lambda row: (str(row["ID"]), row["Course"]) in assigned,
+                axis=1
             )
         ]
 
@@ -147,9 +162,16 @@ def process_progress_report(df, target_courses, intensive_courses,
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict):
-    info = courses_dict[course]
+    """
+    Processes a course grade.
+    - Blank grade → CR
+    - NaN → NR
+    - Otherwise, checks tokens against PassingGrades and returns 'tokens | credits'
+      or 'tokens | 0' (or PASS/FAIL for zero-credit).
+    """
+    info = courses_dict.get(course, {"Credits": 0, "PassingGrades": ""})
     credits = info["Credits"]
-    passing = info["PassingGrades"]
+    passing_grades_str = info["PassingGrades"]
 
     if pd.isna(grade):
         return "NR"
@@ -158,8 +180,8 @@ def determine_course_value(grade, course, courses_dict):
     else:
         tokens = [g.strip().upper() for g in grade.split(", ") if g.strip()]
         all_tokens = ", ".join(tokens)
-        allowed = [x.strip().upper() for x in passing.split(",")]
-        passed = any(t in allowed for t in tokens)
+        allowed = [x.strip().upper() for x in passing_grades_str.split(",")]
+        passed = any(g in allowed for g in tokens)
         if credits > 0:
             return f"{all_tokens} | {credits}" if passed else f"{all_tokens} | 0"
         else:
@@ -173,10 +195,10 @@ def calculate_credits(row, courses_dict):
         total += cred
         val = row.get(course, "")
         if isinstance(val, str):
-            u = val.upper()
-            if u.startswith("CR"):
+            up = val.upper()
+            if up.startswith("CR"):
                 registered += cred
-            elif u.startswith("NR"):
+            elif up.startswith("NR"):
                 remaining += cred
             else:
                 parts = val.split("|")
@@ -193,7 +215,6 @@ def calculate_credits(row, courses_dict):
                             remaining += cred
         else:
             remaining += cred
-
     return pd.Series(
         [completed, registered, remaining, total],
         index=["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]
