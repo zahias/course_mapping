@@ -82,12 +82,12 @@ def process_progress_report(
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
 
-    # 1) Map equivalent courses
+    # 1) Map equivalents
     df["Mapped Course"] = df["Course"].apply(
         lambda x: equivalent_courses_mapping.get(x, x)
     )
 
-    # 2) Apply S.C.E./F.E.C. overrides
+    # 2) Apply S.C.E./F.E.C.
     if per_student_assignments:
         allowed = get_allowed_assignment_types()
         def map_assignment(row):
@@ -102,14 +102,13 @@ def process_progress_report(
             return mapped
         df["Mapped Course"] = df.apply(map_assignment, axis=1)
 
-    # 3) Pre-format each row so CR entries aren’t lost in pivot
+    # 3) Pre-format each row so CR isn’t lost
     df["ProcessedValue"] = df.apply(
         lambda r: determine_course_value(
             r["Grade"],
             r["Mapped Course"],
             {**target_courses, **intensive_courses}
-        ),
-        axis=1
+        ), axis=1
     )
 
     # 4) Split into required, intensive, extra
@@ -134,7 +133,7 @@ def process_progress_report(
         aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
 
-    # 6) Ensure every course column is present (and default to "NR")
+    # 6) Fill missing columns with "NR"
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = "NR"
@@ -149,7 +148,7 @@ def process_progress_report(
     result_df = pivot_df[["ID", "NAME"] + list(target_courses.keys())]
     intensive_result_df = intensive_pivot_df[["ID", "NAME"] + list(intensive_courses.keys())]
 
-    # 7) Remove assigned from extras (unchanged)
+    # 7) Remove assigned from extras
     if per_student_assignments:
         assigned = [
             (sid, crs)
@@ -158,8 +157,7 @@ def process_progress_report(
         ]
         extra_courses_df = extra_courses_df[
             ~extra_courses_df.apply(
-                lambda row: (str(row["ID"]), row["Course"]) in assigned,
-                axis=1
+                lambda row: (str(row["ID"]), row["Course"]) in assigned, axis=1
             )
         ]
 
@@ -188,35 +186,48 @@ def determine_course_value(grade, course, courses_dict):
 def calculate_credits(row, courses_dict):
     """
     Calculates Completed, Registered, Remaining, Total Credits.
-    Now treats any cell containing 'CR' (anywhere in the string)
-    as currently registered.
+    Now treats any passing entry in a multi-attempt cell as completed.
     """
+
     completed, registered, remaining = 0, 0, 0
     total = sum(info["Credits"] for info in courses_dict.values())
 
     for course, info in courses_dict.items():
         cred = info["Credits"]
         val = row.get(course, "")
+
         if isinstance(val, str):
             up = val.upper()
-            # <-- MODIFIED LINE: check for 'CR' anywhere in the cell
-            if "CR" in up:
+
+            # 1) If any CR appears, count as registered
+            entries = [e.strip() for e in val.split(",") if e.strip()]
+            if any(e.upper().startswith("CR") for e in entries):
                 registered += cred
-            elif up.startswith("NR"):
-                remaining += cred
-            else:
-                parts = val.split("|")
+                continue
+
+            # 2) Check if any entry shows passing credit (>0 or PASS)
+            passed = False
+            for e in entries:
+                parts = [p.strip() for p in e.split("|")]
                 if len(parts) == 2:
-                    right = parts[1].strip()
+                    tok, num = parts
+                    # numeric pass
                     try:
-                        n = int(right)
-                        if n > 0:
-                            completed += cred
-                        else:
-                            remaining += cred
+                        if int(num) > 0:
+                            passed = True
+                            break
                     except ValueError:
-                        if right.upper() != "PASS":
-                            remaining += cred
+                        # PASS token for zero-credit
+                        if num.upper() == "PASS":
+                            passed = True
+                            break
+
+            if passed:
+                completed += cred
+            else:
+                # 3) Not registered/passed → remaining
+                remaining += cred
+
         else:
             remaining += cred
 
