@@ -2,8 +2,7 @@
 
 import streamlit as st
 
-# Global grade order (highest → lowest).  
-# We’ve prepended "CR" so that any "CR" beats even "A+" in primary‐grade view.
+# Include "CR" at the very front so it's highest priority
 GRADE_ORDER = [
     "CR",
     "A+","A","A-",
@@ -13,36 +12,26 @@ GRADE_ORDER = [
 ]
 
 def get_allowed_assignment_types():
-    """
-    Returns the list of assignment types.
-    Uses session state if available; otherwise returns the default list.
-    """
     if "allowed_assignment_types" in st.session_state:
         return st.session_state["allowed_assignment_types"]
     return ["S.C.E", "F.E.C"]
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
-    """
-    Checks if the given grade is in the comma-separated list of passing grades.
-    """
     try:
         passing_grades = [x.strip().upper() for x in passing_grades_str.split(",")]
     except Exception:
         passing_grades = []
     return grade.strip().upper() in passing_grades
 
-# Alias for backward compatibility.
+# Alias
 is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
-    """
-    Returns a CSS style string for cell background.
-    """
     if not isinstance(value, str):
         return ""
     v = value.strip().upper()
     if v.startswith("CR"):
-        return "background-color: #FFFACD"  # light yellow
+        return "background-color: #FFFACD"
     parts = value.split("|")
     if len(parts) == 2:
         right = parts[1].strip()
@@ -54,7 +43,6 @@ def cell_color(value: str) -> str:
                 return "background-color: lightgreen"
             if right == "FAIL":
                 return "background-color: pink"
-    # fallback: any counted grade in the left side?
     tokens = [t.strip() for t in parts[0].split(",") if t.strip()]
     for grade in GRADE_ORDER:
         if grade in tokens:
@@ -63,21 +51,35 @@ def cell_color(value: str) -> str:
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    From a full cell string like "F | 0, CR | 3" or "B+, C- | 3", picks the first token
-    in GRADE_ORDER (now with "CR" highest), and re-appends the credit part.
+    Given a full cell string (e.g. "F | 0, CR | 3"), split into entries,
+    then pick the entry whose grade (before '|') appears first in GRADE_ORDER.
+    Return that grade and its credit part unchanged, e.g. "CR | 3".
     """
     if not isinstance(value, str):
         return value
-    parts = value.split("|")
-    if len(parts) < 2:
-        return value  # nothing to collapse
-    grades_part = parts[0].strip()
-    credit_part = parts[1].strip()
-    if not grades_part:
-        return ""
-    tokens = [g.strip().upper() for g in grades_part.split(",") if g.strip()]
+
+    # Split on commas to get each "grade | credit" entry
+    raw_entries = [e.strip() for e in value.split(",") if e.strip()]
+    parsed = []
+    for entry in raw_entries:
+        if "|" in entry:
+            grade_part, cred_part = entry.split("|", 1)
+            grade_token = grade_part.strip().upper()
+            parsed.append((grade_token, cred_part.strip()))
+        else:
+            # If no '|', treat entire entry as a grade with empty credits
+            parsed.append((entry.strip().upper(), ""))
+
+    # Find the highest-priority grade present
     for grade in GRADE_ORDER:
-        if grade in tokens:
-            return f"{grade} | {credit_part}"
-    # fallback to first seen token
-    return f"{tokens[0]} | {credit_part}" if tokens else ""
+        for tok, cred in parsed:
+            if tok == grade:
+                # Return exactly "GRADE | credit" (or just "GRADE" if no credit)
+                return f"{tok} | {cred}" if cred else tok
+
+    # Fallback to first entry
+    if parsed:
+        tok, cred = parsed[0]
+        return f"{tok} | {cred}" if cred else tok
+
+    return ""
