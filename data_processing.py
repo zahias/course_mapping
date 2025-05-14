@@ -82,12 +82,12 @@ def process_progress_report(
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
 
-    # 1) Map equivalent courses
+    # 1) Map equivalents
     df["Mapped Course"] = df["Course"].apply(
         lambda x: equivalent_courses_mapping.get(x, x)
     )
 
-    # 2) Apply S.C.E. / F.E.C. overrides
+    # 2) Apply S.C.E./F.E.C.
     if per_student_assignments:
         allowed_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -102,17 +102,16 @@ def process_progress_report(
             return mapped
         df["Mapped Course"] = df.apply(map_assignment, axis=1)
 
-    # 3) **NEW STEP**: Pre‐format **each row** into a “ProcessedValue” (so CR isn’t lost)
+    # 3) Pre-format each row so CR is never lost
     df["ProcessedValue"] = df.apply(
         lambda r: determine_course_value(
             r["Grade"],
             r["Mapped Course"],
             {**target_courses, **intensive_courses}
-        ),
-        axis=1
+        ), axis=1
     )
 
-    # 4) Identify extra, target, and intensive
+    # 4) Split into required, intensive, extra
     extra_courses_df = df[
         (~df["Mapped Course"].isin(target_courses.keys())) &
         (~df["Mapped Course"].isin(intensive_courses.keys()))
@@ -120,32 +119,37 @@ def process_progress_report(
     target_df = df[df["Mapped Course"].isin(target_courses.keys())]
     intensive_df = df[df["Mapped Course"].isin(intensive_courses.keys())]
 
-    # 5) Pivot **on ProcessedValue**, not raw Grade
+    # 5) Pivot on ProcessedValue
     pivot_df = target_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
         values="ProcessedValue",
-        aggfunc=lambda x: ", ".join(x)
+        aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
     intensive_pivot_df = intensive_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
         values="ProcessedValue",
-        aggfunc=lambda x: ", ".join(x)
+        aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
 
-    # 6) Ensure all columns exist
+    # 6) Ensure every column exists and fill NR
     for course in target_courses:
         if course not in pivot_df.columns:
-            pivot_df[course] = None
+            pivot_df[course] = "NR"
+        else:
+            pivot_df[course] = pivot_df[course].fillna("NR")
+
     for course in intensive_courses:
         if course not in intensive_pivot_df.columns:
-            intensive_pivot_df[course] = None
+            intensive_pivot_df[course] = "NR"
+        else:
+            intensive_pivot_df[course] = intensive_pivot_df[course].fillna("NR")
 
     result_df = pivot_df[["ID", "NAME"] + list(target_courses.keys())]
     intensive_result_df = intensive_pivot_df[["ID", "NAME"] + list(intensive_courses.keys())]
 
-    # 7) Remove assigned from extras (unchanged logic)
+    # 7) Remove assigned from extra (unchanged)
     if per_student_assignments:
         assigned = []
         for sid, assigns in per_student_assignments.items():
@@ -162,13 +166,6 @@ def process_progress_report(
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
 def determine_course_value(grade, course, courses_dict):
-    """
-    Processes a course grade.
-    - Blank grade → CR
-    - NaN → NR
-    - Otherwise, checks tokens against PassingGrades and returns 'tokens | credits'
-      or 'tokens | 0' (or PASS/FAIL for zero-credit).
-    """
     info = courses_dict.get(course, {"Credits": 0, "PassingGrades": ""})
     credits = info["Credits"]
     passing_grades_str = info["PassingGrades"]
@@ -195,10 +192,10 @@ def calculate_credits(row, courses_dict):
         total += cred
         val = row.get(course, "")
         if isinstance(val, str):
-            up = val.upper()
-            if up.startswith("CR"):
+            u = val.upper()
+            if u.startswith("CR"):
                 registered += cred
-            elif up.startswith("NR"):
+            elif u.startswith("NR"):
                 remaining += cred
             else:
                 parts = val.split("|")
