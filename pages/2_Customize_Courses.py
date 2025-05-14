@@ -66,6 +66,14 @@ with st.expander("Course Configuration Options", expanded=True):
                     "FromSemester":  "FALL-2019",
                     "ToSemester":    "SUMMER-9999"
                 },
+                {
+                    "Course":        "INEG200",
+                    "Credits":       3,
+                    "PassingGrades": "A+,A,A-",
+                    "Type":          "Intensive",
+                    "FromSemester":  "FALL-2015",
+                    "ToSemester":    "SUMMER-9999"
+                },
             ])
             st.download_button(
                 "Download Courses Template",
@@ -87,12 +95,11 @@ with st.expander("Course Configuration Options", expanded=True):
             except Exception as e:
                 st.error(f"Error reloading from Drive: {e}")
 
-    # Load courses_config.csv from upload or disk
+    # -- Load the CSV (either uploaded or from disk) --
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
             courses_df.to_csv("courses_config.csv", index=False)
-
             # Sync to Google Drive
             creds = authenticate_google_drive()
             service = build("drive", "v3", credentials=creds)
@@ -104,35 +111,36 @@ with st.expander("Course Configuration Options", expanded=True):
             st.success("Courses configuration synced to Google Drive.")
         except Exception as e:
             st.error(f"Error reading uploaded file: {e}")
-
     elif os.path.exists("courses_config.csv"):
         courses_df = pd.read_csv("courses_config.csv")
     else:
         courses_df = None
 
-    # Parse into in‐memory rule tables
+    # -- Parse into in‐memory rule tables and separate credit maps --
     if courses_df is not None:
         required_cols = {
             "Course", "Credits", "PassingGrades",
             "Type", "FromSemester", "ToSemester"
         }
         if required_cols.issubset(courses_df.columns):
-            # Helper: FALL-YYYY → ordinal, blank → -inf/+inf
+            # Helper: FALL-YYYY → ordinal; blank → open bound
             def sem_to_ord(s: str, lower: bool):
-                if pd.isna(s) or str(s).strip()=="":
+                if pd.isna(s) or str(s).strip() == "":
                     return float('-inf') if lower else float('inf')
                 sem, yr = str(s).split("-")
                 return int(yr) * 3 + {"FALL":0, "SPRING":1, "SUMMER":2}[sem.upper()]
 
             target_rules = {}
             intensive_rules = {}
-            credits_map = {}
+            # We'll build two separate credit‐maps:
+            required_credits = {}
+            intensive_credits = {}
 
             for _, row in courses_df.iterrows():
-                course = row["Course"].strip().upper()
+                course = str(row["Course"]).strip().upper()
                 creds  = int(row["Credits"])
-                pg     = row["PassingGrades"].strip()
-                typ    = row["Type"].strip().lower()
+                pg     = str(row["PassingGrades"]).strip()
+                typ    = str(row["Type"]).strip().lower()
                 fr     = sem_to_ord(row["FromSemester"], lower=True)
                 to     = sem_to_ord(row["ToSemester"],   lower=False)
                 rule   = {
@@ -141,25 +149,24 @@ with st.expander("Course Configuration Options", expanded=True):
                     "FromOrd":       fr,
                     "ToOrd":         to
                 }
-                credits_map[course] = creds
 
                 if typ == "required":
+                    required_credits[course] = creds
                     target_rules.setdefault(course, []).append(rule)
                 else:
+                    intensive_credits[course] = creds
                     intensive_rules.setdefault(course, []).append(rule)
 
-            # Persist into session state
+            # Persist correct, separate maps into session
             st.session_state["target_course_rules"]    = target_rules
             st.session_state["intensive_course_rules"] = intensive_rules
-            st.session_state["target_courses"]         = credits_map
-            st.session_state["intensive_courses"]      = {
-                c: credits_map[c] for c in intensive_rules
-            }
+            st.session_state["target_courses"]         = required_credits
+            st.session_state["intensive_courses"]      = intensive_credits
+
             st.success("Courses configuration loaded.")
         else:
             st.error(
-                "CSV must contain columns: "
-                + ", ".join(sorted(required_cols))
+                "CSV must contain columns: " + ", ".join(sorted(required_cols))
             )
     else:
         st.info("No courses configuration available. Please upload a file.")
