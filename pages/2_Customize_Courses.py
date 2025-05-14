@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import os
 from google_drive_utils import (
-    authenticate_google_drive,
-    search_file,
-    update_file,
-    upload_file,
+    authenticate_google_drive, 
+    search_file, 
+    update_file, 
+    upload_file, 
     download_file
 )
 from googleapiclient.discovery import build
@@ -63,6 +63,8 @@ with st.expander("Course Configuration Options", expanded=True):
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
+            # Strip whitespace from column names to avoid mismatches
+            courses_df.columns = courses_df.columns.str.strip()
             # Save locally
             courses_df.to_csv("courses_config.csv", index=False)
             # Sync to Google Drive
@@ -82,6 +84,8 @@ with st.expander("Course Configuration Options", expanded=True):
             st.error(f"Error reading the uploaded file: {e}")
     elif os.path.exists("courses_config.csv"):
         courses_df = pd.read_csv("courses_config.csv")
+        # Also strip whitespace on reload
+        courses_df.columns = courses_df.columns.str.strip()
     else:
         courses_df = None
 
@@ -110,8 +114,8 @@ with st.expander("Course Configuration Options", expanded=True):
                 rule = {
                     "Credits": int(row['Credits']),
                     "PassingGrades": row['PassingGrades'],
-                    "FromSemester": row['FromSemester'].upper(),
-                    "ToSemester": row['ToSemester'].upper()
+                    "FromSemester": row['FromSemester'].strip().upper(),
+                    "ToSemester": row['ToSemester'].strip().upper()
                 }
                 target_rules.setdefault(course, []).append(rule)
 
@@ -121,8 +125,8 @@ with st.expander("Course Configuration Options", expanded=True):
                 rule = {
                     "Credits": int(row['Credits']),
                     "PassingGrades": row['PassingGrades'],
-                    "FromSemester": row['FromSemester'].upper(),
-                    "ToSemester": row['ToSemester'].upper()
+                    "FromSemester": row['FromSemester'].strip().upper(),
+                    "ToSemester": row['ToSemester'].strip().upper()
                 }
                 intensive_rules.setdefault(course, []).append(rule)
 
