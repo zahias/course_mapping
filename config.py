@@ -41,8 +41,8 @@ def cell_color(value: str) -> str:
         return ""
     v = value.strip().upper()
     if v.startswith("CR"):
-        return "background-color: #FFFACD"  # light yellow
-    parts = value.split("|")
+        return "background-color: #FFFACD"  # light yellow for current registration
+    parts = v.split("|")
     if len(parts) == 2:
         right = parts[1].strip()
         try:
@@ -53,46 +53,49 @@ def cell_color(value: str) -> str:
                 return "background-color: lightgreen"
             if right == "FAIL":
                 return "background-color: pink"
-    # fallback: any counted grade in the left side?
-    tokens = [t.strip().upper() for t in parts[0].split(",") if t.strip()]
+    # fallback: if any counted grade appears
+    left_tokens = [t.strip() for t in parts[0].split(",") if t.strip()]
     for grade in GRADE_ORDER:
-        if grade in tokens:
+        if grade in left_tokens:
             return "background-color: lightgreen"
     return "background-color: pink"
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    Given a full cell value—e.g. "F | 0, CR | 3" or "B+, C- | 3"—this:
-      1. Splits on commas to get each attempt entry.
-      2. Parses each entry into (grade_token, credit_part).
-      3. Searches in GRADE_ORDER (with "CR" first) for the first matching grade_token.
-      4. Returns "GRADE_TOKEN | credit_part".
+    Collapse a full cell value (e.g. "F | 0, CR | 3, A- | 3") into a single "Primary | Credit":
+    
+      1. Split on commas to get each attempt entry.
+      2. Trim and parse each entry into (grade_token, credit_part).
+      3. **First**, look for any entry whose token is "CR" and return it.
+      4. Otherwise, iterate through GRADE_ORDER in priority; if a token matches, return that entry.
+      5. Fallback to the very first entry if nothing matched.
     """
     if not isinstance(value, str):
         return value
 
-    # Break into entries by comma that separate attempts
     entries = [e.strip() for e in value.split(",") if e.strip()]
-    pairs = []
+    parsed = []
     for entry in entries:
         if "|" in entry:
             g, c = entry.split("|", 1)
             grade_token = g.strip().upper()
             credit_part = c.strip()
-            pairs.append((grade_token, credit_part))
-        else:
-            # malformed entry; skip
-            continue
+            parsed.append((grade_token, credit_part))
 
-    # Find the highest‐priority grade in your order
+    # 3) Highest priority: any "CR"
+    for gt, cp in parsed:
+        if gt == "CR":
+            return f"{gt} | {cp}"
+
+    # 4) Next: first grade found in GRADE_ORDER
     for grade in GRADE_ORDER:
-        for (gt, cp) in pairs:
+        for gt, cp in parsed:
             if gt == grade:
                 return f"{gt} | {cp}"
 
-    # Fallback: first entry
-    if pairs:
-        gt, cp = pairs[0]
+    # 5) Fallback: first parsed entry
+    if parsed:
+        gt, cp = parsed[0]
         return f"{gt} | {cp}"
 
     # If nothing parsed, return original
