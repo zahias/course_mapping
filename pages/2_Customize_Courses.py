@@ -19,8 +19,8 @@ st.write(
     "- **Credits** (integer)\n"
     "- **PassingGrades** (comma-separated list, e.g. A+,A,A-,B)\n"
     "- **Type** (`Required` or `Intensive`)\n"
-    "- **FromSemester** (e.g. FALL-2016)\n"
-    "- **ToSemester**   (e.g. SUMMER-9999 for no upper bound)\n\n"
+    "- **FromSemester** (e.g. FALL-2016) or leave blank for no lower bound\n"
+    "- **ToSemester**   (e.g. SUMMER-9999) or leave blank for no upper bound\n\n"
     "Semesters use exactly the same `FALL-YYYY`, `SPRING-YYYY`, `SUMMER-YYYY` codes as your data."
 )
 
@@ -117,9 +117,11 @@ with st.expander("Course Configuration Options", expanded=True):
             "Type", "FromSemester", "ToSemester"
         }
         if required_cols.issubset(courses_df.columns):
-            # Helper: FALL-YYYY → ordinal
-            def sem_to_ord(s: str):
-                sem, yr = s.split("-")
+            # Helper: FALL-YYYY → ordinal, blank → -inf/+inf
+            def sem_to_ord(s: str, lower: bool):
+                if pd.isna(s) or str(s).strip()=="":
+                    return float('-inf') if lower else float('inf')
+                sem, yr = str(s).split("-")
                 return int(yr) * 3 + {"FALL":0, "SPRING":1, "SUMMER":2}[sem.upper()]
 
             target_rules = {}
@@ -131,13 +133,13 @@ with st.expander("Course Configuration Options", expanded=True):
                 creds  = int(row["Credits"])
                 pg     = row["PassingGrades"].strip()
                 typ    = row["Type"].strip().lower()
-                fr     = sem_to_ord(row["FromSemester"])
-                to     = sem_to_ord(row["ToSemester"])
+                fr     = sem_to_ord(row["FromSemester"], lower=True)
+                to     = sem_to_ord(row["ToSemester"],   lower=False)
                 rule   = {
-                    "Credits": creds,
+                    "Credits":       creds,
                     "PassingGrades": pg,
-                    "FromOrd": fr,
-                    "ToOrd": to
+                    "FromOrd":       fr,
+                    "ToOrd":         to
                 }
                 credits_map[course] = creds
 
