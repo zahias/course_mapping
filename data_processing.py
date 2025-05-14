@@ -5,9 +5,9 @@ from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
 def sem_to_ord(sem: str, year: int) -> int:
     """
     Convert a Semester string + Year into a monotonic integer:
-      FALL-YYYY → YYYY*3 + 0
-      SPRING-YYYY → YYYY*3 + 1
-      SUMMER-YYYY → YYYY*3 + 2
+      FALL‐YYYY → YYYY*3 + 0
+      SPRING‐YYYY → YYYY*3 + 1
+      SUMMER‐YYYY → YYYY*3 + 2
     """
     mapping = {"Fall": 0, "Spring": 1, "Summer": 2}
     return int(year) * 3 + mapping.get(sem.capitalize(), 0)
@@ -70,9 +70,9 @@ def transform_wide_format(df):
         st.error("Parsing error: Expected format COURSECODE/SEMESTER-YEAR/GRADE.")
         return None
 
-    df_melted["Course"] = split_cols[0].str.strip().str.upper()
+    df_melted["Course"]        = split_cols[0].str.strip().str.upper()
     df_melted["Semester_Year"] = split_cols[1].str.strip()
-    df_melted["Grade"] = split_cols[2].str.strip().str.upper()
+    df_melted["Grade"]         = split_cols[2].str.strip().str.upper()
 
     sem_year_split = df_melted["Semester_Year"].str.split("-", expand=True)
     if sem_year_split.shape[1] < 2:
@@ -142,13 +142,13 @@ def process_progress_report(
         lambda x: equivalent_courses_mapping.get(x, x)
     )
 
-    # S.C.E. / F.E.C. overrides
+    # 1) S.C.E. / F.E.C. overrides
     if per_student_assignments:
         allowed = get_allowed_assignment_types()
         def map_asg(r):
-            sid = str(r["ID"])
-            crs = r["Course"]
-            mc  = r["Mapped Course"]
+            sid     = str(r["ID"])
+            crs     = r["Course"]
+            mc      = r["Mapped Course"]
             assigns = per_student_assignments.get(sid, {})
             for t in allowed:
                 if assigns.get(t) == crs:
@@ -156,7 +156,7 @@ def process_progress_report(
             return mc
         df["Mapped Course"] = df.apply(map_asg, axis=1)
 
-    # Row‐wise rule selection & formatting
+    # 2) Row‐wise rule selection & formatting
     target_rules    = st.session_state["target_course_rules"]
     intensive_rules = st.session_state["intensive_course_rules"]
 
@@ -171,20 +171,19 @@ def process_progress_report(
         for rule in rules:
             if rule["FromOrd"] <= ordval <= rule["ToOrd"]:
                 return determine_course_value(grd, mc, rule)
-        # fallback to first
         return determine_course_value(grd, mc, rules[0])
 
     df["ProcessedValue"] = df.apply(compute_val, axis=1)
 
-    # Split into required, intensive, extra
-    extra_df      = df[
+    # 3) Split into required, intensive, extra
+    extra_df        = df[
         ~df["Mapped Course"].isin(credits_map.keys()) &
         ~df["Mapped Course"].isin(intensive_credits.keys())
     ]
-    req_df        = df[df["Mapped Course"].isin(credits_map.keys())]
-    intensive_df  = df[df["Mapped Course"].isin(intensive_credits.keys())]
+    req_df          = df[df["Mapped Course"].isin(credits_map.keys())]
+    intensive_df    = df[df["Mapped Course"].isin(intensive_credits.keys())]
 
-    # Pivot on ProcessedValue
+    # 4) Pivot on ProcessedValue
     pivot_req = req_df.pivot_table(
         index=["ID","NAME"],
         columns="Mapped Course",
@@ -198,7 +197,7 @@ def process_progress_report(
         aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
 
-    # Ensure all columns exist (fill NR)
+    # 5) Ensure all columns exist (fill "NR")
     for c in credits_map:
         pivot_req[c] = pivot_req.get(c, "NR")
         pivot_req[c] = pivot_req[c].fillna("NR")
@@ -206,10 +205,10 @@ def process_progress_report(
         pivot_int[c] = pivot_int.get(c, "NR")
         pivot_int[c] = pivot_int[c].fillna("NR")
 
-    result_df          = pivot_req[["ID","NAME"] + list(credits_map.keys())]
-    intensive_result_df= pivot_int[["ID","NAME"] + list(intensive_credits.keys())]
+    result_df           = pivot_req[["ID","NAME"] + list(credits_map.keys())]
+    intensive_result_df = pivot_int[["ID","NAME"] + list(intensive_credits.keys())]
 
-    # Remove assigned from extras
+    # 6) Remove assigned from extras
     if per_student_assignments:
         assigned = {
             (sid, crs)
@@ -223,30 +222,48 @@ def process_progress_report(
     return result_df, intensive_result_df, extra_df, extra_courses_list
 
 def calculate_credits(row, courses_dict):
-    # … your existing calculate_credits unchanged …
-    completed, registered, remaining = 0, 0, 0
-    total = sum(info["Credits"] for info in courses_dict.values())
+    """
+    Calculates Completed, Registered, Remaining, Total Credits.
+    Now treats any passing entry in a multi-attempt cell as completed,
+    and any CR entry anywhere as currently registered.
+    Also supports courses_dict values being either int or dict.
+    """
+    completed = registered = remaining = 0
+
+    def _cred(info):
+        if isinstance(info, dict):
+            return int(info.get("Credits", 0))
+        try:
+            return int(info)
+        except:
+            return 0
+
+    total = sum(_cred(info) for info in courses_dict.values())
+
     for course, info in courses_dict.items():
-        cred = info["Credits"]
+        cred = _cred(info)
         val  = row.get(course, "")
+
         if isinstance(val, str):
-            up = val.upper()
+            up      = val.upper()
+            entries = [e.strip() for e in val.split(",") if e.strip()]
+
             # CR anywhere → registered
-            if "CR" in up:
+            if any(e.upper().startswith("CR") for e in entries):
                 registered += cred
                 continue
-            # any positive → completed
-            entries = [e.strip() for e in val.split(",") if e.strip()]
+
+            # any positive credit or PASS → completed
             passed = False
             for e in entries:
                 parts = [p.strip() for p in e.split("|")]
-                if len(parts)==2:
+                if len(parts) == 2:
                     try:
-                        if int(parts[1])>0:
+                        if int(parts[1]) > 0:
                             passed = True
                             break
                     except:
-                        if parts[1].upper()=="PASS":
+                        if parts[1].upper() == "PASS":
                             passed = True
                             break
             if passed:
@@ -255,22 +272,22 @@ def calculate_credits(row, courses_dict):
                 remaining += cred
         else:
             remaining += cred
+
     return pd.Series(
         [completed, registered, remaining, total],
-        index=["# of Credits Completed","# Registered","# Remaining","Total Credits"]
+        index=["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]
     )
 
 def save_report_with_formatting(displayed_df, intensive_displayed_df, timestamp):
-    # … your existing save_report_with_formatting unchanged …
     import io
     from openpyxl import Workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
     from openpyxl.styles import PatternFill, Font, Alignment
     from config import cell_color
 
-    output = io.BytesIO()
+    output   = io.BytesIO()
     workbook = Workbook()
-    ws_req = workbook.active
+    ws_req   = workbook.active
     ws_req.title = "Required Courses"
 
     light_green = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
