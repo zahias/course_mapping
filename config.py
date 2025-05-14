@@ -1,8 +1,6 @@
-# config.py
-
 import streamlit as st
 
-# Insert "CR" first so it's the very highest priority when collapsing.
+# Insert "CR" at the very front so it outranks even "A+"
 GRADE_ORDER = [
     "CR",
     "A+", "A", "A-",
@@ -13,14 +11,14 @@ GRADE_ORDER = [
 
 def get_allowed_assignment_types():
     """
-    Returns the list of assignment types.
-    Uses session state if available; otherwise defaults to S.C.E and F.E.C.
+    Returns the list of assignment types (e.g. S.C.E, F.E.C).
+    Can be overridden in session state.
     """
     return st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
-    Checks if a grade token is in the comma-separated passing grades.
+    Checks if 'grade' is in the comma-separated passing_grades_str.
     """
     try:
         passing = [g.strip().upper() for g in passing_grades_str.split(",")]
@@ -33,17 +31,19 @@ is_passing_grade = is_passing_grade_from_list
 
 def cell_color(value: str) -> str:
     """
-    Returns CSS background-color based on the value:
+    Applies the color rules:
       - CR → pale yellow
-      - numeric credit >0 → lightgreen; 0 → pink
-      - PASS → lightgreen; FAIL → pink
-      - any counted grade → lightgreen; else pink
+      - numeric credits >0 → light green; 0 → pink
+      - PASS → light green; FAIL → pink
+      - any other counted grade → light green; else pink
     """
     if not isinstance(value, str):
         return ""
     v = value.strip().upper()
+    # 1) Explicit CR
     if v.startswith("CR"):
         return "background-color: #FFFACD"
+    # 2) Numeric credit part
     parts = v.split("|")
     if len(parts) == 2:
         right = parts[1].strip()
@@ -55,7 +55,7 @@ def cell_color(value: str) -> str:
                 return "background-color: lightgreen"
             if right == "FAIL":
                 return "background-color: pink"
-    # fallback on any grade token
+    # 3) Any counted grade token
     tokens = [t.strip() for t in parts[0].split(",") if t.strip()]
     for grade in GRADE_ORDER:
         if grade in tokens:
@@ -64,17 +64,17 @@ def cell_color(value: str) -> str:
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
-    Collapses a full cell string (e.g. "F | 0, CR | 3") down to a single entry:
-      1) If any entry starts with "CR", returns that entry verbatim.
-      2) Otherwise, splits into (grade,credit) pairs and scans GRADE_ORDER
-         (CR, A+, A, …, D-) to pick the first matching grade.
-      3) If still no match, falls back to the very first entry.
-    Returns "GRADE | credit" or just "GRADE" if no credit part.
+    Given a cell like "F | 0, CR | 3", returns the single highest-priority entry.
+    Priority is:
+      1) Any "CR | X"
+      2) Then the first grade in GRADE_ORDER found among tokens
+      3) Else the very first entry
+    Returns "GRADE | credit" (or just "GRADE" if no credit part).
     """
     if not isinstance(value, str):
         return value
 
-    # Split into entries by comma
+    # 1) Split into entries
     entries = [e.strip() for e in value.split(",") if e.strip()]
     parsed = []
     for entry in entries:
@@ -84,17 +84,17 @@ def extract_primary_grade_from_full_value(value: str) -> str:
         else:
             parsed.append((entry.strip().upper(), ""))
 
-    # 1) Explicit CR check
-    for grade_tok, cred in parsed:
-        if grade_tok == "CR":
-            return f"{grade_tok} | {cred}" if cred else "CR"
+    # 2) Explicit CR
+    for g, c in parsed:
+        if g == "CR":
+            return f"{g} | {c}" if c else "CR"
 
-    # 2) Scan GRADE_ORDER
+    # 3) Scan GRADE_ORDER
     for grade in GRADE_ORDER:
-        for grade_tok, cred in parsed:
-            if grade_tok == grade:
-                return f"{grade_tok} | {cred}" if cred else grade_tok
+        for g, c in parsed:
+            if g == grade:
+                return f"{g} | {c}" if c else grade
 
-    # 3) Fallback to first entry
-    grade_tok, cred = parsed[0]
-    return f"{grade_tok} | {cred}" if cred else grade_tok
+    # 4) Fallback
+    g, c = parsed[0]
+    return f"{g} | {c}" if c else g
