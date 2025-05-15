@@ -1,4 +1,14 @@
+# pages/1_Upload_Data.py
+
 import os
+import sys
+
+# ─── Ensure project root is on sys.path so we can import utilities, data_processing, etc ───
+FILE_DIR    = os.path.dirname(os.path.abspath(__file__))       # .../course_mapping/pages
+PROJECT_ROOT = os.path.abspath(os.path.join(FILE_DIR, os.pardir))  # .../course_mapping
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from datetime import datetime
 
 import pandas as pd
@@ -18,22 +28,18 @@ from logging_utils import setup_logging
 
 st.set_page_config(page_title="Phoenicia University Student Progress Tracker", layout="wide")
 
+# ─── Greeting ───
+st.markdown("## Hello")
 st.image("pu_logo.png", width=120)
 st.title("Phoenicia University Student Progress Tracker")
 st.subheader("Developed by Dr. Zahi Abdul Sater")
 
 setup_logging()
 
-# ——— Columns for Upload vs. Reload ———
-col1, col2 = st.columns([3,1])
+# ─── Layout: Upload on left, Reload on right ───
+col1, col2 = st.columns([3, 1])
 
-with col1:
-    uploaded_file = st.file_uploader(
-        "Upload Student Progress File (Excel/CSV)",
-        type=["xlsx", "xls", "csv"],
-        help="You can upload the standard Progress Report or the wide format."
-    )
-
+# 1) Reload from Google Drive
 with col2:
     if st.button("Reload Progress Report from Google Drive"):
         if "progress_file_name" not in st.session_state:
@@ -45,7 +51,6 @@ with col2:
                 service = build("drive", "v3", credentials=creds)
                 file_id = search_file(service, drive_name)
                 if file_id:
-                    # ensure uploads folder exists
                     os.makedirs("uploads", exist_ok=True)
                     local_path = os.path.join("uploads", drive_name)
                     download_file(service, file_id, local_path)
@@ -61,35 +66,40 @@ with col2:
             except Exception as e:
                 st.error(f"Error reloading from Google Drive: {e}")
 
-# ——— Handle a new upload ———
-if uploaded_file is not None:
-    # 1) save locally
-    filepath = save_uploaded_file(uploaded_file)
-    st.session_state["progress_file_name"] = uploaded_file.name
+# 2) Upload new file
+with col1:
+    uploaded_file = st.file_uploader(
+        "Upload Student Progress File (Excel/CSV)",
+        type=["xlsx", "xls", "csv"],
+        help="You can upload the standard Progress Report or the wide format."
+    )
+    if uploaded_file is not None:
+        # 2a) Save locally
+        filepath = save_uploaded_file(uploaded_file)
+        st.session_state["progress_file_name"] = uploaded_file.name
 
-    # 2) sync to Drive
-    try:
-        creds = authenticate_google_drive()
-        service = build("drive", "v3", credentials=creds)
+        # 2b) Sync to Google Drive
+        try:
+            creds = authenticate_google_drive()
+            service = build("drive", "v3", credentials=creds)
+            file_id = search_file(service, uploaded_file.name)
+            if file_id:
+                update_file(service, file_id, filepath)
+                st.info(f"Updated '{uploaded_file.name}' on Google Drive.")
+            else:
+                upload_file(service, filepath, uploaded_file.name)
+                st.info(f"Uploaded '{uploaded_file.name}' to Google Drive.")
+        except Exception as e:
+            st.error(f"Error syncing to Google Drive: {e}")
 
-        # see if a file with this name already exists
-        file_id = search_file(service, uploaded_file.name)
-        if file_id:
-            update_file(service, file_id, filepath)
-            st.info(f"Updated '{uploaded_file.name}' on Google Drive.")
+        # 2c) Parse and store
+        df = read_progress_report(filepath)
+        if df is not None:
+            st.session_state["raw_df"] = df
+            st.success("File uploaded, processed, and synced. Move to 'Customize Courses' or 'View Reports'.")
         else:
-            upload_file(service, filepath, uploaded_file.name)
-            st.info(f"Uploaded '{uploaded_file.name}' to Google Drive.")
-    except Exception as e:
-        st.error(f"Error syncing to Google Drive: {e}")
+            st.error("Failed to read data from the uploaded progress report.")
 
-    # 3) parse and load into session
-    df = read_progress_report(filepath)
-    if df is not None:
-        st.session_state["raw_df"] = df
-        st.success("File uploaded, processed, and synced. Move to 'Customize Courses' or 'View Reports'.")
-    else:
-        st.error("Failed to read data from the uploaded progress report.")
-
-elif "raw_df" not in st.session_state:
+# 3) Prompt if nothing has been loaded yet
+if "raw_df" not in st.session_state:
     st.info("Please upload an Excel or CSV file to proceed.")
