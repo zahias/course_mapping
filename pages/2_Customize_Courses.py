@@ -24,6 +24,7 @@ st.write(
     "Semesters use exactly the same `FALL-YYYY`, `SPRING-YYYY`, `SUMMER-YYYY` codes as your data."
 )
 
+# === Course Configuration ===
 with st.expander("Course Configuration Options", expanded=True):
     uploaded_courses = st.file_uploader(
         "Upload Courses Configuration (CSV)",
@@ -95,12 +96,12 @@ with st.expander("Course Configuration Options", expanded=True):
             except Exception as e:
                 st.error(f"Error reloading from Drive: {e}")
 
-    # -- Load the CSV (either uploaded or from disk) --
+    # Load or sync the CSV
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
             courses_df.to_csv("courses_config.csv", index=False)
-            # Sync to Google Drive
+
             creds = authenticate_google_drive()
             service = build("drive", "v3", credentials=creds)
             file_id = search_file(service, "courses_config.csv")
@@ -116,14 +117,13 @@ with st.expander("Course Configuration Options", expanded=True):
     else:
         courses_df = None
 
-    # -- Parse into in‐memory rule tables and separate credit maps --
+    # Parse into in-memory rule tables and credit maps
     if courses_df is not None:
         required_cols = {
             "Course", "Credits", "PassingGrades",
             "Type", "FromSemester", "ToSemester"
         }
         if required_cols.issubset(courses_df.columns):
-            # Helper: FALL-YYYY → ordinal; blank → open bound
             def sem_to_ord(s: str, lower: bool):
                 if pd.isna(s) or str(s).strip() == "":
                     return float('-inf') if lower else float('inf')
@@ -132,7 +132,6 @@ with st.expander("Course Configuration Options", expanded=True):
 
             target_rules = {}
             intensive_rules = {}
-            # We'll build two separate credit‐maps:
             required_credits = {}
             intensive_credits = {}
 
@@ -157,7 +156,6 @@ with st.expander("Course Configuration Options", expanded=True):
                     intensive_credits[course] = creds
                     intensive_rules.setdefault(course, []).append(rule)
 
-            # Persist correct, separate maps into session
             st.session_state["target_course_rules"]    = target_rules
             st.session_state["intensive_course_rules"] = intensive_rules
             st.session_state["target_courses"]         = required_credits
@@ -170,3 +168,35 @@ with st.expander("Course Configuration Options", expanded=True):
             )
     else:
         st.info("No courses configuration available. Please upload a file.")
+
+# === Equivalent Courses ===
+with st.expander("Equivalent Courses", expanded=False):
+    st.write("This section automatically loads the `equivalent_courses.csv` file from Google Drive.")
+    try:
+        creds = authenticate_google_drive()
+        service = build("drive", "v3", credentials=creds)
+        file_id = search_file(service, "equivalent_courses.csv")
+        if file_id:
+            download_file(service, file_id, "equivalent_courses.csv")
+            st.success("Equivalent courses file loaded from Google Drive.")
+        else:
+            # create and upload empty template
+            empty_df = pd.DataFrame(columns=["Course", "Equivalent"])
+            empty_df.to_csv("equivalent_courses.csv", index=False)
+            upload_file(service, "equivalent_courses.csv", "equivalent_courses.csv")
+            st.info("No equivalent courses file found; an empty template was created on Google Drive.")
+    except Exception as e:
+        st.error(f"Error processing equivalent courses file: {e}")
+
+# === Assignment Types Configuration ===
+with st.expander("Assignment Types Configuration", expanded=False):
+    st.write("Edit the list of assignment types (e.g., S.C.E., F.E.C., ARAB201).")
+    default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
+    assignment_types_str = st.text_input(
+        "Enter assignment types (comma separated)",
+        value=", ".join(default_types)
+    )
+    if st.button("Save Assignment Types"):
+        new_types = [x.strip() for x in assignment_types_str.split(",") if x.strip()]
+        st.session_state["allowed_assignment_types"] = new_types
+        st.success("Assignment types updated.")
