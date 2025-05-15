@@ -22,9 +22,7 @@ st.set_page_config(page_title="Phoenicia University Student Progress Tracker", l
 
 # ——— Greeting ———
 st.markdown("## Hello")
-st.image("pu_logo.png", width=120)
-st.title("Phoenicia University Student Progress Tracker")
-st.subheader("Developed by Dr. Zahi Abdul Sater")
+
 
 setup_logging()
 
