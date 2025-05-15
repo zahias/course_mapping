@@ -14,18 +14,19 @@ from google_drive_utils import (
 from googleapiclient.discovery import build
 from logging_utils import setup_logging
 
+# ─── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Phoenicia University Student Progress Tracker",
     layout="wide",
 )
+setup_logging()
 
+# ─── Header ─────────────────────────────────────────────────────────────────────
 st.image("pu_logo.png", width=120)
 st.title("Phoenicia University Student Progress Tracker")
 st.subheader("Developed by Dr. Zahi Abdul Sater")
 
-setup_logging()
-
-# Two‐column layout: uploader (wide) and reload button (narrow)
+# ─── Upload & Reload UI ────────────────────────────────────────────────────────
 col_upload, col_reload = st.columns([3, 1])
 
 with col_upload:
@@ -36,53 +37,50 @@ with col_upload:
     )
 
 with col_reload:
-    reload_pressed = st.button("Reload From Google Drive")
+    if st.button("Reload From Google Drive"):
+        try:
+            creds   = authenticate_google_drive()
+            service = build("drive", "v3", credentials=creds)
+            found   = False
 
-# --- Handle Reload ---
-if reload_pressed:
-    try:
-        creds = authenticate_google_drive()
-        service = build("drive", "v3", credentials=creds)
-        found = False
-        # Try common filenames/extensions
-        for ext in ("xlsx", "xls", "csv"):
-            remote_name = f"progress_report.{ext}"
-            file_id = search_file(service, remote_name)
-            if file_id:
-                download_file(service, file_id, remote_name)
-                df = read_progress_report(remote_name)
-                if df is not None:
-                    st.session_state["raw_df"] = df
-                    st.success(f"Reloaded `{remote_name}` from Google Drive.")
-                else:
-                    st.error(f"Downloaded `{remote_name}` but failed to parse it.")
-                found = True
-                break
-        if not found:
-            st.error("No `progress_report.(xlsx|xls|csv)` file found on Google Drive.")
-    except Exception as e:
-        st.error(f"Error reloading from Google Drive: {e}")
+            # Try each extension in turn
+            for ext in ("xlsx", "xls", "csv"):
+                remote_name = f"progress_report.{ext}"
+                file_id     = search_file(service, remote_name)
+                if file_id:
+                    download_file(service, file_id, remote_name)
+                    df = read_progress_report(remote_name)
+                    if df is not None:
+                        st.session_state["raw_df"] = df
+                        st.success(f"Reloaded `{remote_name}` from Google Drive.")
+                    else:
+                        st.error(f"Downloaded `{remote_name}` but failed to parse it.")
+                    found = True
+                    break
 
-# --- Handle Upload ---
+            if not found:
+                st.error("No `progress_report.(xlsx|xls|csv)` file found on Google Drive.")
+        except Exception as e:
+            st.error(f"Error reloading from Google Drive: {e}")
+
+# ─── Handle New Upload ─────────────────────────────────────────────────────────
 if uploaded_file is not None:
-    # 1) Save locally
     local_path = save_uploaded_file(uploaded_file)
-    # 2) Read & validate
     df = read_progress_report(local_path)
+
     if df is not None:
         st.session_state["raw_df"] = df
-        st.success("File uploaded and processed successfully. Move to 'Customize Courses' or 'View Reports'.")
+        st.success("File uploaded and processed successfully. Move to ‘Customize Courses’ or ‘View Reports’.")
 
-        # 3) Sync up to Google Drive
+        # Sync up to Google Drive
         try:
-            creds = authenticate_google_drive()
+            creds   = authenticate_google_drive()
             service = build("drive", "v3", credentials=creds)
 
-            # Use a consistent remote name
-            ext = os.path.splitext(local_path)[1].lower().lstrip(".")
+            ext         = os.path.splitext(local_path)[1].lstrip(".").lower()
             remote_name = f"progress_report.{ext}"
+            file_id     = search_file(service, remote_name)
 
-            file_id = search_file(service, remote_name)
             if file_id:
                 update_file(service, file_id, local_path)
                 st.info(f"Updated `{remote_name}` on Google Drive.")
@@ -94,6 +92,6 @@ if uploaded_file is not None:
     else:
         st.error("Failed to read data from the uploaded progress report.")
 
-# --- Prompt if nothing loaded ---
+# ─── Prompt if Nothing Loaded ──────────────────────────────────────────────────
 elif "raw_df" not in st.session_state:
     st.info("Please upload a progress report or reload one from Google Drive to proceed.")
