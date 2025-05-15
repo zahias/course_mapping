@@ -35,7 +35,11 @@ else:
 
         # Process the report
         full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
-            df, target_courses, intensive_courses, per_student_assignments, equivalent_courses_mapping
+            df,
+            target_courses,
+            intensive_courses,
+            per_student_assignments,
+            equivalent_courses_mapping
         )
 
         # Calculate credits
@@ -87,13 +91,35 @@ else:
             for col in intensive_courses:
                 displayed_int_df[col] = displayed_int_df[col].apply(collapse_pass_fail)
 
-        # Show the tables
-        display_dataframes(
-            displayed_req_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_courses.keys())]),
-            displayed_int_df.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())]),
-            extra_courses_df,
-            df
+        # --- NEW: Search box for Progress Tables ---
+        search_progress = st.text_input(
+            "Search Progress (Student ID or Name)",
+            help="Filter the Required and Intensive tables by student ID or student name"
         )
+        if search_progress:
+            mask_req = (
+                displayed_req_df["ID"].astype(str).str.contains(search_progress, case=False, na=False)
+                | displayed_req_df["NAME"].str.contains(search_progress, case=False, na=False)
+            )
+            mask_int = (
+                displayed_int_df["ID"].astype(str).str.contains(search_progress, case=False, na=False)
+                | displayed_int_df["NAME"].str.contains(search_progress, case=False, na=False)
+            )
+            displayed_req_df = displayed_req_df[mask_req]
+            displayed_int_df = displayed_int_df[mask_int]
+
+        # Style after filtering
+        styled_req = displayed_req_df.style.applymap(
+            cell_color,
+            subset=pd.IndexSlice[:, list(target_courses.keys())]
+        )
+        styled_int = displayed_int_df.style.applymap(
+            cell_color,
+            subset=pd.IndexSlice[:, list(intensive_courses.keys())]
+        )
+
+        # Show the tables (passing styled versions)
+        display_dataframes(styled_req, styled_int, extra_courses_df, df)
 
         # Color legend
         st.markdown(
@@ -107,24 +133,22 @@ else:
         # ---- ASSIGN COURSES SECTION ----
         st.subheader("Assign Courses")
 
-        # 1) Search bar
+        # 1) Search bar for assignments
         search_bar = st.text_input(
             "Search by Student ID, Name, or Course",
             help="Filter extra courses by text"
         )
-
-        # 2) Apply the search filter to extra_courses_df
         if search_bar:
             extra_courses_df = extra_courses_df[
-                extra_courses_df['ID'].astype(str).str.contains(search_bar, case=False, na=False) |
-                extra_courses_df['NAME'].str.contains(search_bar, case=False, na=False) |
-                extra_courses_df['Course'].str.contains(search_bar, case=False, na=False)
+                extra_courses_df["ID"].astype(str).str.contains(search_bar, case=False, na=False)
+                | extra_courses_df["NAME"].str.contains(search_bar, case=False, na=False)
+                | extra_courses_df["Course"].str.contains(search_bar, case=False, na=False)
             ]
 
-        # 3) Editable assignment table
+        # 2) Editable assignment table
         edited_extra_courses_df = add_assignment_selection(extra_courses_df)
 
-        # 4) Action buttons in one row
+        # 3) Action buttons in one row
         btn1, btn2, btn3 = st.columns(3)
         with btn1:
             save_btn = st.button("Save Assignments", help="Save to Google Drive")
@@ -142,7 +166,7 @@ else:
             st.success("All assignments have been reset.")
             st.rerun()
 
-        # 5) Validate & save
+        # 4) Validate & save
         errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
         if errors:
             st.error("Resolve these before saving:")
@@ -153,7 +177,7 @@ else:
             st.success("Assignments saved.")
             st.rerun()
 
-        # 6) Download if requested
+        # 5) Download if requested
         if download_btn:
             out = save_report_with_formatting(
                 displayed_req_df, displayed_int_df,
