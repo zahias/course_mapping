@@ -1,84 +1,76 @@
-import os
+import io
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-from utilities import save_uploaded_file
-from data_processing import read_progress_report
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from google_drive_utils import (
-    authenticate_google_drive,
-    search_file,
-    upload_file,
-    update_file,
-    download_file
-)
-from logging_utils import setup_logging
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-st.set_page_config(page_title="Phoenicia University Student Progress Tracker", layout="wide")
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
-st.image("pu_logo.png", width=120)
-st.title("Phoenicia University Student Progress Tracker")
-st.subheader("Developed by Dr. Zahi Abdul Sater")
+def authenticate_google_drive():
+    # Build credentials from st.secrets. We assume the user has added:
+    # [google]
+    # client_id = "YOUR_GOOGLE_CLIENT_ID"
+    # client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
+    # refresh_token = "YOUR_REFRESH_TOKEN"
+    # token_uri = "https://oauth2.googleapis.com/token"
 
-setup_logging()
+    client_id = st.secrets["google"]["client_id"]
+    client_secret = st.secrets["google"]["client_secret"]
+    refresh_token = st.secrets["google"]["refresh_token"]
+    token_uri = st.secrets["google"].get("token_uri", "https://oauth2.googleapis.com/token")
 
-# --- Reload from Drive button ---
-if st.button("Reload Progress Report from Google Drive"):
-    fn = st.session_state.get("raw_filename")
-    local_path = st.session_state.get("raw_filepath")
-    if not fn or not local_path:
-        st.error("No previously uploaded file name found. Please upload first.")
+    creds = Credentials(
+        None,
+        refresh_token=refresh_token,
+        token_uri=token_uri,
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES
+    )
+    # Refresh if needed
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+
+    return creds
+
+def upload_file(service, file_path, file_name, folder_id=None):
+    file_metadata = {'name': file_name}
+    if folder_id:
+        file_metadata['parents'] = [folder_id]
+    media = MediaFileUpload(file_path, resumable=True)
+    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    return file.get('id')
+
+def update_file(service, file_id, file_path):
+    media = MediaFileUpload(file_path, resumable=True)
+    file = service.files().update(fileId=file_id, media_body=media).execute()
+    return file.get('id')
+
+def download_file(service, file_id, file_path):
+    request = service.files().get_media(fileId=file_id)
+    fh = io.FileIO(file_path, 'wb')
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+
+    fh.close()
+
+def search_file(service, file_name, folder_id=None):
+    query = f"name='{file_name}' and trashed=false"
+    if folder_id:
+        query += f" and '{folder_id}' in parents"
+    results = service.files().list(
+        q=query,
+        spaces='drive',
+        fields='files(id, name)',
+        pageSize=1
+    ).execute()
+    items = results.get('files', [])
+    if items:
+        return items[0]['id']
     else:
-        try:
-            creds = authenticate_google_drive()
-            service = build("drive", "v3", credentials=creds)
-            file_id = search_file(service, fn)
-            if file_id:
-                download_file(service, file_id, local_path)
-                df = read_progress_report(local_path)
-                if df is not None:
-                    st.session_state["raw_df"] = df
-                    st.success(f"Reloaded '{fn}' from Google Drive.")
-                else:
-                    st.error("Downloaded file could not be processed. Please check its format.")
-            else:
-                st.error(f"No file named '{fn}' found on Google Drive.")
-        except Exception as e:
-            st.error(f"Error reloading from Google Drive: {e}")
+        return None
 
-st.markdown("---")
-
-# --- File uploader ---
-uploaded_file = st.file_uploader(
-    "Upload Student Progress File (Excel/CSV)",
-    type=["xlsx", "xls", "csv"],
-    help="You can upload the standard Progress Report or the wide format."
-)
-
-if uploaded_file is not None:
-    # 1) Save locally
-    filepath = save_uploaded_file(uploaded_file)
-    # 2) Read & validate
-    df = read_progress_report(filepath)
-    if df is not None:
-        # store for downstream
-        st.session_state["raw_df"] = df
-        st.session_state["raw_filepath"] = filepath
-        st.session_state["raw_filename"] = uploaded_file.name
-
-        # 3) Sync to Google Drive
-        try:
-            creds = authenticate_google_drive()
-            service = build("drive", "v3", credentials=creds)
-            file_id = search_file(service, uploaded_file.name)
-            if file_id:
-                update_file(service, file_id, filepath)
-            else:
-                upload_file(service, filepath, uploaded_file.name)
-            st.success(f"Uploaded and synced '{uploaded_file.name}' to Google Drive. Move to 'Customize Courses' or 'View Reports'.")
-        except Exception as e:
-            st.error(f"File processed locally, but failed to sync to Google Drive: {e}")
-    else:
-        st.error("Failed to read data from the uploaded progress report.")
-else:
-    st.info("Please upload an Excel or CSV file to proceed.")
+def delete_file(service, file_id):
+    service.files().delete(fileId=file_id).execute()
