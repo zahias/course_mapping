@@ -7,195 +7,179 @@ from data_processing import (
     read_equivalent_courses
 )
 from ui_components import display_dataframes, add_assignment_selection
-from assignment_utils import load_assignments, save_assignments, validate_assignments, reset_assignments
+from assignment_utils import save_assignments, validate_assignments, reset_assignments
+from google_drive_utils import authenticate_google_drive, search_file, download_file
+from googleapiclient.discovery import build
 from datetime import datetime
 import os
-from config import get_allowed_assignment_types, GRADE_ORDER, extract_primary_grade_from_full_value, cell_color
+from config import (
+    get_allowed_assignment_types,
+    GRADE_ORDER,
+    extract_primary_grade_from_full_value,
+    cell_color
+)
 
 st.title("View Reports")
 st.markdown("---")
 
 if "raw_df" not in st.session_state:
-    st.warning("No data available. Please upload data in 'Upload Data' page and set courses in 'Customize Courses' page.")
+    st.warning("No data available. Upload in 'Upload Data' first.")
+    st.stop()
+
+df = st.session_state["raw_df"]
+target_courses = st.session_state.get("target_courses")
+intensive_courses = st.session_state.get("intensive_courses")
+
+if target_courses is None or intensive_courses is None:
+    st.warning("Courses not defined. Go to 'Customize Courses'.")
+    st.stop()
+
+# --- Sync assignments from Google Drive before loading ---
+try:
+    creds = authenticate_google_drive()
+    service = build("drive", "v3", credentials=creds)
+    fid = search_file(service, "sce_fec_assignments.csv")
+    if fid:
+        download_file(service, fid, "sce_fec_assignments.csv")
+        st.info("Loaded assignments from Google Drive.")
+except Exception:
+    # silently ignore
+    pass
+
+# --- Load assignments from local DB (populated by previous runs) ---
+from assignment_utils import load_assignments
+per_student_assignments = load_assignments()
+
+# --- Read equivalent courses CSV (unchanged) ---
+eq_df = None
+if os.path.exists("equivalent_courses.csv"):
+    eq_df = pd.read_csv("equivalent_courses.csv")
+equivalent_courses_mapping = (
+    read_equivalent_courses(eq_df) if eq_df is not None else {}
+)
+
+# --- Process the progress report ---
+full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
+    df,
+    target_courses,
+    intensive_courses,
+    per_student_assignments,
+    equivalent_courses_mapping
+)
+
+# --- Calculate credits (unchanged) ---
+credits_df = full_req_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
+full_req_df = pd.concat([full_req_df, credits_df], axis=1)
+int_credits = intensive_req_df.apply(lambda r: calculate_credits(r, intensive_courses), axis=1)
+intensive_req_df = pd.concat([intensive_req_df, int_credits], axis=1)
+
+# --- Primary grade view setup (unchanged) ---
+primary_req_df = full_req_df.copy()
+for c in target_courses:
+    primary_req_df[c] = primary_req_df[c].apply(extract_primary_grade_from_full_value)
+primary_int_df = intensive_req_df.copy()
+for c in intensive_courses:
+    primary_int_df[c] = primary_int_df[c].apply(extract_primary_grade_from_full_value)
+
+# --- Toggles (unchanged) ---
+show_all = st.checkbox("Show All Grades", value=True)
+if show_all:
+    disp_req = full_req_df.copy()
+    disp_int = intensive_req_df.copy()
 else:
-    df = st.session_state["raw_df"]
-    target_courses = st.session_state.get("target_courses")
-    intensive_courses = st.session_state.get("intensive_courses")
+    disp_req = primary_req_df.copy()
+    disp_int = primary_int_df.copy()
 
-    if target_courses is None or intensive_courses is None:
-        st.warning("Courses not defined yet. Go to 'Customize Courses'.")
-    else:
-        per_student_assignments = load_assignments()
+show_comp = st.checkbox("Show Completed/Not Completed Only", value=False)
+if show_comp:
+    def collapse(val):
+        if not isinstance(val, str): return val
+        parts = val.split("|")
+        if len(parts)==2:
+            cs = parts[1].strip()
+            try:
+                return "c" if int(cs)>0 else ""
+            except:
+                return "c" if cs.upper()=="PASS" else ""
+        return val
 
-        # Load equivalent courses mapping
-        eq_df = None
-        if os.path.exists("equivalent_courses.csv"):
-            eq_df = pd.read_csv("equivalent_courses.csv")
-        equivalent_courses_mapping = read_equivalent_courses(eq_df) if eq_df is not None else {}
+    for c in target_courses: disp_req[c] = disp_req[c].apply(collapse)
+    for c in intensive_courses: disp_int[c] = disp_int[c].apply(collapse)
 
-        # Process the report
-        full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
-            df,
-            target_courses,
-            intensive_courses,
-            per_student_assignments,
-            equivalent_courses_mapping
-        )
+# --- Search box for the progress tables ----------------
+search_prog = st.text_input(
+    "Search Progress (ID or Name)",
+    help="Filter the Required and Intensive tables"
+)
+if search_prog:
+    mask_r = disp_req["ID"].astype(str).str.contains(search_prog, case=False, na=False) | \
+             disp_req["NAME"].str.contains(search_prog, case=False, na=False)
+    mask_i = disp_int["ID"].astype(str).str.contains(search_prog, case=False, na=False) | \
+             disp_int["NAME"].str.contains(search_prog, case=False, na=False)
+    disp_req = disp_req[mask_r]
+    disp_int = disp_int[mask_i]
 
-        # Calculate credits
-        credits_df = full_req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
-        full_req_df = pd.concat([full_req_df, credits_df], axis=1)
-        intensive_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
-        intensive_req_df = pd.concat([intensive_req_df, intensive_credits_df], axis=1)
+# --- Style and display (unchanged) ---------------------
+styled_req = disp_req.style.applymap(cell_color, subset=pd.IndexSlice[:, list(target_courses.keys())])
+styled_int = disp_int.style.applymap(cell_color, subset=pd.IndexSlice[:, list(intensive_courses.keys())])
+display_dataframes(styled_req, styled_int, extra_courses_df, df)
 
-        # Build primary‐grade view
-        primary_req_df = full_req_df.copy()
-        for course in target_courses:
-            primary_req_df[course] = primary_req_df[course].apply(extract_primary_grade_from_full_value)
-        primary_int_df = intensive_req_df.copy()
-        for course in intensive_courses:
-            primary_int_df[course] = primary_int_df[course].apply(extract_primary_grade_from_full_value)
+st.markdown(
+    "<p><strong>Color Legend:</strong> "
+    "<span style='background-color: lightgreen; padding:4px;'>Passed</span> | "
+    "<span style='background-color: #FFFACD; padding:4px;'>CR</span> | "
+    "<span style='background-color: pink; padding:4px;'>Not Completed</span></p>",
+    unsafe_allow_html=True
+)
 
-        # Toggles
-        show_all_toggle = st.checkbox(
-            "Show All Grades", value=True,
-            help="Detailed vs. primary‐only grade view"
-        )
-        if show_all_toggle:
-            displayed_req_df = full_req_df.copy()
-            displayed_int_df = intensive_req_df.copy()
-        else:
-            displayed_req_df = primary_req_df.copy()
-            displayed_int_df = primary_int_df.copy()
+# --- Assign Courses section (unchanged) ----------------
+st.subheader("Assign Courses")
+search_asg = st.text_input("Search by ID, Name or Course")
+if search_asg:
+    extra_courses_df = extra_courses_df[
+        extra_courses_df["ID"].astype(str).str.contains(search_asg, na=False, case=False) |
+        extra_courses_df["NAME"].str.contains(search_asg, na=False, case=False) |
+        extra_courses_df["Course"].str.contains(search_asg, na=False, case=False)
+    ]
 
-        show_complete_toggle = st.checkbox(
-            "Show Completed/Not Completed Only",
-            value=False,
-            help="If enabled, shows 'c' or blank instead of grades"
-        )
-        if show_complete_toggle:
-            def collapse_pass_fail(val):
-                if not isinstance(val, str):
-                    return val
-                parts = val.split("|")
-                if len(parts) == 2:
-                    cs = parts[1].strip()
-                    try:
-                        return "c" if int(cs) > 0 else ""
-                    except:
-                        return "c" if cs.upper() == "PASS" else ""
-                return val
+edited = add_assignment_selection(extra_courses_df)
+col1, col2, col3 = st.columns(3)
+with col1:
+    btn_save = st.button("Save Assignments")
+with col2:
+    btn_reset = st.button("Reset All Assignments")
+with col3:
+    btn_dl = st.button("Download Processed Report")
 
-            for col in target_courses:
-                displayed_req_df[col] = displayed_req_df[col].apply(collapse_pass_fail)
-            for col in intensive_courses:
-                displayed_int_df[col] = displayed_int_df[col].apply(collapse_pass_fail)
+if btn_reset:
+    reset_assignments()
+    st.success("Assignments reset.")
+    st.rerun()
 
-        # --- NEW: Search box for Progress Tables ---
-        search_progress = st.text_input(
-            "Search Progress (Student ID or Name)",
-            help="Filter the Required and Intensive tables by student ID or student name"
-        )
-        if search_progress:
-            mask_req = (
-                displayed_req_df["ID"].astype(str).str.contains(search_progress, case=False, na=False)
-                | displayed_req_df["NAME"].str.contains(search_progress, case=False, na=False)
-            )
-            mask_int = (
-                displayed_int_df["ID"].astype(str).str.contains(search_progress, case=False, na=False)
-                | displayed_int_df["NAME"].str.contains(search_progress, case=False, na=False)
-            )
-            displayed_req_df = displayed_req_df[mask_req]
-            displayed_int_df = displayed_int_df[mask_int]
+errs, updated = validate_assignments(edited, per_student_assignments)
+if errs:
+    st.error("Resolve before saving:")
+    for e in errs: st.write(f"- {e}")
+elif btn_save:
+    save_assignments(updated)
+    st.success("Assignments saved.")
+    st.rerun()
 
-        # Style after filtering
-        styled_req = displayed_req_df.style.applymap(
-            cell_color,
-            subset=pd.IndexSlice[:, list(target_courses.keys())]
-        )
-        styled_int = displayed_int_df.style.applymap(
-            cell_color,
-            subset=pd.IndexSlice[:, list(intensive_courses.keys())]
-        )
+if btn_dl:
+    out = save_report_with_formatting(disp_req, disp_int, datetime.now().strftime("%Y%m%d_%H%M%S"))
+    st.session_state["output"] = out.getvalue()
+    st.download_button(
+        "Download Processed Report",
+        data=st.session_state["output"],
+        file_name="student_progress_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-        # Show the tables (passing styled versions)
-        display_dataframes(styled_req, styled_int, extra_courses_df, df)
-
-        # Color legend
-        st.markdown(
-            "<p><strong>Color Legend:</strong> "
-            "<span style='background-color: lightgreen; padding: 3px 10px;'>Passed</span> | "
-            "<span style='background-color: #FFFACD; padding: 3px 10px;'>Currently Registered (CR)</span> | "
-            "<span style='background-color: pink; padding: 3px 10px;'>Not Completed/Failing</span></p>",
-            unsafe_allow_html=True
-        )
-
-        # ---- ASSIGN COURSES SECTION ----
-        st.subheader("Assign Courses")
-
-        # 1) Search bar for assignments
-        search_bar = st.text_input(
-            "Search by Student ID, Name, or Course",
-            help="Filter extra courses by text"
-        )
-        if search_bar:
-            extra_courses_df = extra_courses_df[
-                extra_courses_df["ID"].astype(str).str.contains(search_bar, case=False, na=False)
-                | extra_courses_df["NAME"].str.contains(search_bar, case=False, na=False)
-                | extra_courses_df["Course"].str.contains(search_bar, case=False, na=False)
-            ]
-
-        # 2) Editable assignment table
-        edited_extra_courses_df = add_assignment_selection(extra_courses_df)
-
-        # 3) Action buttons in one row
-        btn1, btn2, btn3 = st.columns(3)
-        with btn1:
-            save_btn = st.button("Save Assignments", help="Save to Google Drive")
-        with btn2:
-            reset_btn = st.button("Reset All Assignments", help="Clear all assignments")
-        with btn3:
-            download_btn = st.button(
-                "Download Processed Report",
-                help="Download report",
-                key="download_btn"
-            )
-
-        if reset_btn:
-            reset_assignments()
-            st.success("All assignments have been reset.")
-            st.rerun()
-
-        # 4) Validate & save
-        errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
-        if errors:
-            st.error("Resolve these before saving:")
-            for err in errors:
-                st.write(f"- {err}")
-        elif save_btn:
-            save_assignments(updated_assignments)
-            st.success("Assignments saved.")
-            st.rerun()
-
-        # 5) Download if requested
-        if download_btn:
-            out = save_report_with_formatting(
-                displayed_req_df, displayed_int_df,
-                datetime.now().strftime("%Y%m%d_%H%M%S")
-            )
-            st.session_state["output"] = out.getvalue()
-            st.download_button(
-                label="Download Processed Report",
-                data=st.session_state["output"],
-                file_name="student_progress_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        # Footer
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown(
-            "<div style='text-align:center; font-size:14px;'>"
-            "Developed by Dr. Zahi Abdul Sater"
-            "</div>",
-            unsafe_allow_html=True
-        )
+# --- Footer ---
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown(
+    "<div style='text-align:center;font-size:14px;'>"
+    "Developed by Dr. Zahi Abdul Sater"
+    "</div>",
+    unsafe_allow_html=True
+)
