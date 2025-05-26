@@ -1,0 +1,93 @@
+Course,Credits,CountedGrades,Type,,
+ARAB 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+BCOM 300,0,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+BIO201 (Previously BIO or CHEM),3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+CIVL 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+CIVL 202,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+CMPS 202,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+COMM 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+ENGL 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+ENGL 202,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+PSYCH 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+STAT 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 201,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 202,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 204,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 205N,2,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 206N,4,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 207,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 208,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 209,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 210,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 211,2,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 212,2,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 217,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 219,2,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 224,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 225,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 226,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 227,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 228,2,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 229N,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 230,2,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 231,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 234,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 240,0,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 240S,1,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 241,0,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 241S,1,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 250,1,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Required,,
+SPTH 270,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 270,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 271,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 271,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 272,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 272,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 273,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 273,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 274,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 274,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 275,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 275,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 276,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 276,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 277,1,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 277,1,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 290,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 290,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 291,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 291,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 292,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 292,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 293A,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 293A,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 293B,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 293B,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 294A,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 294A,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 294B,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 294B,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 296A,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 296A,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 296B,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 296B,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 297A,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 297A,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 297B,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 297B,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 298A,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 298A,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 298B,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 298B,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 299A,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 299A,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+SPTH 299B,0,"A+,A,A-,B+,B,B-,C+,C,C-,P,P*,WP,T",Required,FALL-2016,FALL-2023
+SPTH 299B,0,"A+,A,A-,B+,B,B-,C+,C,P,P*,WP,T",Required,SPRING-2023,SPRING-2024
+INEG200,12,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+INEG300,9,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+ENGL101,6,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+CHEM101,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+BIOL101,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+PHYS101,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+MATH101,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
+MATH102,3,"A+,A,A-,B+,B,B-,C+,C,C-,D+,D,D-,P,P*,WP,T",Intensive,,
