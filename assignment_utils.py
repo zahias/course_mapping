@@ -62,13 +62,13 @@ def load_assignments(db_path: str = "assignments.db", csv_path: str = "sce_fec_a
     otherwise falling back to the SQLite database at `db_path`.
 
     Returns a dict:
-      {
-        "student_id_1": {"S.C.E.": "COURSEX", "F.E.C.": "COURSEY", ...},
-        "student_id_2": {...},
-         ...
-      }
+        {
+          "student_id_1": {"S.C.E.": "COURSEX", "F.E.C.": "COURSEY", ...},
+          "student_id_2": {...},
+           ...
+        }
     """
-    # 1) Try to read from CSV first
+    # 1) Try to read from the CSV file first
     if os.path.exists(csv_path):
         try:
             df = pd.read_csv(csv_path)
@@ -84,7 +84,7 @@ def load_assignments(db_path: str = "assignments.db", csv_path: str = "sce_fec_a
         except Exception as e:
             st.warning(f"Could not read assignments CSV '{csv_path}': {e}")
 
-    # 2) Fallback to SQLite DB
+    # 2) If CSV is missing or invalid, fall back to SQLite DB
     conn = init_db(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT student_id, course, assignment_type FROM assignments')
@@ -129,7 +129,7 @@ def validate_assignments(edited_df: pd.DataFrame, per_student_assignments: dict)
                 else:
                     new_assignments[student_id][assign_type] = course
 
-    # Merge new_assignments into existing per_student_assignments
+    # Merge new_assignments into the existing per_student_assignments
     for student_id, assigns in new_assignments.items():
         if student_id not in per_student_assignments:
             per_student_assignments[student_id] = assigns
@@ -193,7 +193,7 @@ def save_assignments(
 
 def reset_assignments(csv_path: str = "sce_fec_assignments.csv", db_path: str = "assignments.db"):
     """
-    Completely clears all assignments for this major:
+    Completely clears all assignments:
       - Deletes the local CSV (if it exists)
       - Deletes the CSV on Google Drive (if present)
       - Deletes the local SQLite DB file (if present)
