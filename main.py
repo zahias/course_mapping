@@ -27,7 +27,7 @@ if "selected_major" not in st.session_state:
     st.session_state["selected_major"] = None
 
 # List of available majors. Adjust this list as needed.
-MAJOR_LIST = ["— select a major —", "BIOMAJ", "ENGMAJ", "PBHLMAJ"]
+MAJOR_LIST = ["— select a major —", "PBHL", "SPTHOLD", "SPTHNEW"]
 major = st.selectbox("Select Major", MAJOR_LIST, index=0)
 
 if major == "— select a major —":
