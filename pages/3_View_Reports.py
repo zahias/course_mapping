@@ -24,7 +24,7 @@ st.markdown("---")
 
 # === 0) Major Selection ===
 if "selected_major" not in st.session_state or st.session_state["selected_major"] is None:
-    st.warning("No Major selected. Go to Upload Data page first.")
+    st.warning("No Major selected. Upload data on the Upload Data page first.")
     st.stop()
 
 major = st.session_state["selected_major"]
@@ -34,12 +34,12 @@ os.makedirs(local_folder, exist_ok=True)
 # === 1) Ensure raw DataFrame is loaded for this Major ===
 raw_key = f"{major}_raw_df"
 if raw_key not in st.session_state:
-    st.warning("No progress data found for this Major. Upload it on the Upload Data page.")
+    st.warning("No progress data available for this Major. Upload it on the Upload Data page.")
     st.stop()
 
 df = st.session_state[raw_key]
 
-# === 2) Retrieve this Major’s course rule‐sets ===
+# === 2) Retrieve this Major’s rules from session_state ===
 target_key       = f"{major}_target_courses"
 intensive_key    = f"{major}_intensive_courses"
 target_rules_key = f"{major}_target_course_rules"
@@ -51,7 +51,7 @@ if (
     or target_rules_key not in st.session_state
     or intensive_rules_key not in st.session_state
 ):
-    st.warning("Courses have not yet been customized for this Major. Go to Customize Courses page.")
+    st.warning("Courses have not been configured yet for this Major. Customize them first.")
     st.stop()
 
 target_courses    = st.session_state[target_key]
@@ -70,7 +70,6 @@ try:
         download_file(service, fid, csv_path_for_major)
         st.info("Loaded assignments from Google Drive.")
 except Exception:
-    # quietly ignore if no file on Drive
     pass
 
 per_student_assignments = load_assignments(
@@ -86,20 +85,22 @@ if os.path.exists(eq_path_for_major):
 else:
     equivalent_courses_mapping = {}
 
-# === 5) Process the progress report for this Major ===
+# === 5) Process the progress report using explicitly passed rules ===
 full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
     df,
     target_courses,
     intensive_courses,
+    target_rules,
+    intensive_rules,
     per_student_assignments,
     equivalent_courses_mapping
 )
 
 # === 6) Calculate credits for both Required & Intensive ===
-credits_df = full_req_df.apply(lambda row: calculate_credits(row, target_courses), axis=1)
+credits_df = full_req_df.apply(lambda r: calculate_credits(r, target_courses), axis=1)
 full_req_df = pd.concat([full_req_df, credits_df], axis=1)
 
-int_credits_df = intensive_req_df.apply(lambda row: calculate_credits(row, intensive_courses), axis=1)
+int_credits_df = intensive_req_df.apply(lambda r: calculate_credits(r, intensive_courses), axis=1)
 intensive_req_df = pd.concat([intensive_req_df, int_credits_df], axis=1)
 
 # === 7) Build Primary‐Grade view (for toggling) ===
@@ -115,8 +116,9 @@ for c in intensive_courses:
 show_all_toggle = st.checkbox(
     "Show All Grades",
     value=True,
-    help="Toggle between detailed (all grades + credits) and simplified (primary grade + credit) view."
+    help="Toggle between detailed (all grades + credits) vs. simplified (primary grade + credit) view."
 )
+
 if show_all_toggle:
     displayed_req_df = full_req_df.copy()
     displayed_int_df = intensive_req_df.copy()
@@ -212,10 +214,7 @@ with col3:
     download_btn = st.button("Download Processed Report", help="Download Excel report")
 
 if reset_btn:
-    reset_assignments(
-        csv_path=csv_path_for_major,
-        db_path="assignments.db"
-    )
+    reset_assignments(csv_path=csv_path_for_major)
     st.success("All assignments have been reset for this Major.")
     st.rerun()
 
@@ -225,11 +224,7 @@ if errors:
     for err in errors:
         st.write(f"- {err}")
 elif save_btn:
-    save_assignments(
-        updated_assignments,
-        db_path="assignments.db",
-        csv_path=csv_path_for_major
-    )
+    save_assignments(updated_assignments, csv_path=csv_path_for_major)
     st.success("Assignments saved for this Major.")
     st.rerun()
 
