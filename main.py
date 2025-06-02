@@ -26,12 +26,12 @@ setup_logging()
 if "selected_major" not in st.session_state:
     st.session_state["selected_major"] = None
 
-# List of majors - update as needed
+# List of available majors. Adjust this list as needed.
 MAJOR_LIST = ["— select a major —", "BIOMAJ", "ENGMAJ", "PBHLMAJ"]
 major = st.selectbox("Select Major", MAJOR_LIST, index=0)
 
 if major == "— select a major —":
-    st.info("Please select a Major before uploading a progress report.")
+    st.info("Please select a Major before uploading or reloading a progress report.")
     st.stop()
 
 st.session_state["selected_major"] = major
@@ -53,19 +53,18 @@ if st.button("Reload Progress from Google Drive"):
         creds = authenticate_google_drive()
         service = build("drive", "v3", credentials=creds)
 
-        # We look for any of the three common extensions under the major’s folder on Drive
+        # Look for any of the three extensions under "configs/{major}/progress_report.*"
         drive_id = None
         drive_filename = None
         for ext in ("xlsx", "xls", "csv"):
-            candidate_name = f"configs/{major}/progress_report.{ext}"
-            fid = search_file(service, candidate_name)
+            candidate = f"configs/{major}/progress_report.{ext}"
+            fid = search_file(service, candidate)
             if fid:
                 drive_id = fid
-                drive_filename = candidate_name
+                drive_filename = candidate
                 break
 
         if drive_id:
-            # Download to local configs/{major}/progress_report.<ext>
             local_path = os.path.join(local_folder, os.path.basename(drive_filename))
             download_file(service, drive_id, local_path)
 
@@ -76,18 +75,18 @@ if st.button("Reload Progress from Google Drive"):
             else:
                 st.error("Downloaded file could not be parsed as a Progress Report.")
         else:
-            st.error("No progress_report.* found on Google Drive for this Major.")
+            st.error("No `progress_report.*` found on Google Drive for this Major.")
     except Exception as e:
         st.error(f"Error reloading from Google Drive: {e}")
 
-# === 3) Handle new Upload & Sync to Drive ===
+# === 3) Handle new Upload & Sync to Google Drive ===
 if uploaded_file is not None:
-    # 3a) Save locally under configs/{major}/
+    # 3a) Save locally under `configs/{major}/`
     local_path = os.path.join(local_folder, uploaded_file.name)
     with open(local_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # 3b) Sync to Drive under the canonical name "configs/{major}/progress_report.<ext>"
+    # 3b) Sync to Drive under canonical name `configs/{major}/progress_report.<ext>`
     try:
         creds = authenticate_google_drive()
         service = build("drive", "v3", credentials=creds)

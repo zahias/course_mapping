@@ -14,23 +14,35 @@ st.title("Customize Courses")
 st.markdown("---")
 
 st.write(
-    "Upload a custom CSV to define courses configuration. The CSV should contain:\n\n"
+    "Upload a custom CSV to define courses configuration for the selected Major. The CSV must contain:\n\n"
     "- **Course** (e.g. PBHL201)\n"
     "- **Credits** (integer)\n"
     "- **PassingGrades** (comma-separated list, e.g. A+,A,A-,B)\n"
     "- **Type** (`Required` or `Intensive`)\n"
     "- **FromSemester** (e.g. FALL-2016) or leave blank for no lower bound\n"
     "- **ToSemester**   (e.g. SUMMER-9999) or leave blank for no upper bound\n\n"
-    "Semesters use exactly the same `FALL-YYYY`, `SPRING-YYYY`, `SUMMER-YYYY` codes as your data."
+    "Semesters must follow `FALL-YYYY`, `SPRING-YYYY`, or `SUMMER-YYYY` exactly."
 )
 
-# === Course Configuration ===
+# === 0) Major Selection ===
+if "selected_major" not in st.session_state or st.session_state["selected_major"] is None:
+    st.warning("First, select a Major on the Upload Data page.")
+    st.stop()
+
+major = st.session_state["selected_major"]
+
+# Ensure local folder exists
+local_folder = os.path.join("configs", major)
+os.makedirs(local_folder, exist_ok=True)
+
+# === 1) Course Configuration Section ===
 with st.expander("Course Configuration Options", expanded=True):
     uploaded_courses = st.file_uploader(
         "Upload Courses Configuration (CSV)",
         type="csv",
         help="Use the template below."
     )
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Download Template"):
@@ -87,37 +99,42 @@ with st.expander("Course Configuration Options", expanded=True):
             try:
                 creds = authenticate_google_drive()
                 service = build("drive", "v3", credentials=creds)
-                file_id = search_file(service, "courses_config.csv")
+                drive_name = f"configs/{major}/courses_config.csv"
+                file_id = search_file(service, drive_name)
                 if file_id:
-                    download_file(service, file_id, "courses_config.csv")
+                    local_csv = os.path.join(local_folder, "courses_config.csv")
+                    download_file(service, file_id, local_csv)
                     st.success("Reloaded courses_config.csv from Google Drive.")
                 else:
-                    st.error("No courses_config.csv found on Google Drive.")
+                    st.error("No courses_config.csv found on Google Drive for this Major.")
             except Exception as e:
-                st.error(f"Error reloading from Drive: {e}")
+                st.error(f"Error reloading courses configuration: {e}")
 
-    # Load or sync the CSV
+    # --- Load or Sync the CSV ---
     if uploaded_courses is not None:
         try:
             courses_df = pd.read_csv(uploaded_courses)
-            courses_df.to_csv("courses_config.csv", index=False)
+            local_csv = os.path.join(local_folder, "courses_config.csv")
+            courses_df.to_csv(local_csv, index=False)
 
+            # Sync to Drive
             creds = authenticate_google_drive()
             service = build("drive", "v3", credentials=creds)
-            file_id = search_file(service, "courses_config.csv")
+            drive_name = f"configs/{major}/courses_config.csv"
+            file_id = search_file(service, drive_name)
             if file_id:
-                update_file(service, file_id, "courses_config.csv")
+                update_file(service, file_id, local_csv)
             else:
-                upload_file(service, "courses_config.csv", "courses_config.csv")
+                upload_file(service, local_csv, drive_name)
             st.success("Courses configuration synced to Google Drive.")
         except Exception as e:
-            st.error(f"Error reading uploaded file: {e}")
-    elif os.path.exists("courses_config.csv"):
-        courses_df = pd.read_csv("courses_config.csv")
+            st.error(f"Error reading uploaded courses CSV: {e}")
+    elif os.path.exists(os.path.join(local_folder, "courses_config.csv")):
+        courses_df = pd.read_csv(os.path.join(local_folder, "courses_config.csv"))
     else:
         courses_df = None
 
-    # Parse into in-memory rule tables and credit maps
+    # --- Parse into in‐memory rule tables and credit maps ---
     if courses_df is not None:
         required_cols = {
             "Course", "Credits", "PassingGrades",
@@ -128,7 +145,7 @@ with st.expander("Course Configuration Options", expanded=True):
                 if pd.isna(s) or str(s).strip() == "":
                     return float('-inf') if lower else float('inf')
                 sem, yr = str(s).split("-")
-                return int(yr) * 3 + {"FALL":0, "SPRING":1, "SUMMER":2}[sem.upper()]
+                return int(yr) * 3 + {"FALL": 0, "SPRING": 1, "SUMMER": 2}[sem.upper()]
 
             target_rules = {}
             intensive_rules = {}
@@ -136,32 +153,33 @@ with st.expander("Course Configuration Options", expanded=True):
             intensive_credits = {}
 
             for _, row in courses_df.iterrows():
-                course = str(row["Course"]).strip().upper()
-                creds  = int(row["Credits"])
-                pg     = str(row["PassingGrades"]).strip()
-                typ    = str(row["Type"]).strip().lower()
-                fr     = sem_to_ord(row["FromSemester"], lower=True)
-                to     = sem_to_ord(row["ToSemester"],   lower=False)
-                rule   = {
+                course   = str(row["Course"]).strip().upper()
+                creds    = int(row["Credits"])
+                pg       = str(row["PassingGrades"]).strip()
+                typ      = str(row["Type"]).strip().lower()
+                fr_ord   = sem_to_ord(row["FromSemester"], lower=True)
+                to_ord   = sem_to_ord(row["ToSemester"],   lower=False)
+                rule_dict = {
                     "Credits":       creds,
                     "PassingGrades": pg,
-                    "FromOrd":       fr,
-                    "ToOrd":         to
+                    "FromOrd":       fr_ord,
+                    "ToOrd":         to_ord
                 }
 
                 if typ == "required":
                     required_credits[course] = creds
-                    target_rules.setdefault(course, []).append(rule)
+                    target_rules.setdefault(course, []).append(rule_dict)
                 else:
                     intensive_credits[course] = creds
-                    intensive_rules.setdefault(course, []).append(rule)
+                    intensive_rules.setdefault(course, []).append(rule_dict)
 
-            st.session_state["target_course_rules"]    = target_rules
-            st.session_state["intensive_course_rules"] = intensive_rules
-            st.session_state["target_courses"]         = required_credits
-            st.session_state["intensive_courses"]      = intensive_credits
+            # Save into session_state under Major‐scoped keys
+            st.session_state[f"{major}_target_course_rules"]    = target_rules
+            st.session_state[f"{major}_intensive_course_rules"] = intensive_rules
+            st.session_state[f"{major}_target_courses"]         = required_credits
+            st.session_state[f"{major}_intensive_courses"]      = intensive_credits
 
-            st.success("Courses configuration loaded.")
+            st.success("Courses configuration loaded successfully.")
         else:
             st.error(
                 "CSV must contain columns: " + ", ".join(sorted(required_cols))
@@ -169,34 +187,38 @@ with st.expander("Course Configuration Options", expanded=True):
     else:
         st.info("No courses configuration available. Please upload a file.")
 
-# === Equivalent Courses ===
+# === 2) Equivalent Courses Section ===
 with st.expander("Equivalent Courses", expanded=False):
-    st.write("This section automatically loads the `equivalent_courses.csv` file from Google Drive.")
+    st.write("This section automatically loads the `equivalent_courses.csv` file from Google Drive for the selected Major.")
     try:
         creds = authenticate_google_drive()
         service = build("drive", "v3", credentials=creds)
-        file_id = search_file(service, "equivalent_courses.csv")
+        drive_name = f"configs/{major}/equivalent_courses.csv"
+        file_id = search_file(service, drive_name)
         if file_id:
-            download_file(service, file_id, "equivalent_courses.csv")
+            local_eq = os.path.join(local_folder, "equivalent_courses.csv")
+            download_file(service, file_id, local_eq)
             st.success("Equivalent courses file loaded from Google Drive.")
         else:
-            # create and upload empty template
+            # If not found, create an empty CSV and push it
+            local_eq = os.path.join(local_folder, "equivalent_courses.csv")
             empty_df = pd.DataFrame(columns=["Course", "Equivalent"])
-            empty_df.to_csv("equivalent_courses.csv", index=False)
-            upload_file(service, "equivalent_courses.csv", "equivalent_courses.csv")
-            st.info("No equivalent courses file found; an empty template was created on Google Drive.")
+            empty_df.to_csv(local_eq, index=False)
+            upload_file(service, local_eq, drive_name)
+            st.info("No equivalent_courses.csv found on Drive; an empty template was created and uploaded.")
     except Exception as e:
         st.error(f"Error processing equivalent courses file: {e}")
 
-# === Assignment Types Configuration ===
+# === 3) Assignment Types Configuration ===
 with st.expander("Assignment Types Configuration", expanded=False):
-    st.write("Edit the list of assignment types (e.g., S.C.E., F.E.C., ARAB201).")
-    default_types = st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
+    st.write("Edit the list of assignment types (e.g. S.C.E., F.E.C., ARAB201). This is per‐Major.")
+    key = f"{major}_allowed_assignment_types"
+    default_types = st.session_state.get(key, ["S.C.E", "F.E.C"])
     assignment_types_str = st.text_input(
-        "Enter assignment types (comma separated)",
-        value=", ".join(default_types)
+        "Enter assignment types (comma separated)", value=", ".join(default_types)
     )
+
     if st.button("Save Assignment Types"):
         new_types = [x.strip() for x in assignment_types_str.split(",") if x.strip()]
-        st.session_state["allowed_assignment_types"] = new_types
-        st.success("Assignment types updated.")
+        st.session_state[key] = new_types
+        st.success("Assignment types updated for this Major.")
