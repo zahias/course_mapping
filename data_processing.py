@@ -99,6 +99,144 @@ def read_equivalent_courses(equivalent_courses_df):
             mapping[eq] = primary
     return mapping
 
+def process_progress_report(
+    df: pd.DataFrame,
+    target_courses: dict,
+    intensive_courses: dict,
+    per_student_assignments: dict = None,
+    equivalent_courses_mapping: dict = None
+):
+    """
+    1) Map equivalents
+    2) Apply S.C.E./F.E.C. (or other allowed assignment types)
+    3) Determine each cell's ProcessedValue string
+    4) Split DataFrame into required, intensive, extra
+    5) Pivot on ProcessedValue, filling missing columns with 'NR'
+    6) Remove assigned courses from extra
+    """
+    if equivalent_courses_mapping is None:
+        equivalent_courses_mapping = {}
+
+    df = df.copy()
+    df["Mapped Course"] = df["Course"].apply(
+        lambda x: equivalent_courses_mapping.get(x, x)
+    )
+
+    # --- 1) Apply S.C.E. / F.E.C. (or any other allowed assignment types) ---
+    if per_student_assignments:
+        allowed = get_allowed_assignment_types()
+        def map_assignment(r):
+            sid     = str(r["ID"])
+            crs     = r["Course"]
+            mapped  = r["Mapped Course"]
+            assigns = per_student_assignments.get(sid, {})
+            for atype in allowed:
+                if assigns.get(atype) == crs:
+                    return atype
+            return mapped
+
+        df["Mapped Course"] = df.apply(map_assignment, axis=1)
+
+    # --- 2) Build and apply the time‐scoped rule set per course ---
+    #    We fetch the Major‐scoped rule dicts from session_state.
+    major = st.session_state.get("selected_major", "")
+    if not major:
+        st.error("No 'selected_major' found in session_state.")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
+
+    target_rules_key    = f"{major}_target_course_rules"
+    intensive_rules_key = f"{major}_intensive_course_rules"
+
+    if target_rules_key not in st.session_state or intensive_rules_key not in st.session_state:
+        st.error("Course rules not found in session_state for this Major.")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), []
+
+    target_rules    = st.session_state[target_rules_key]
+    intensive_rules = st.session_state[intensive_rules_key]
+
+    def compute_processed_value(r):
+        """
+        Given a row `r`, look up the matching rule (by semester-year ordinal)
+        in either target_rules[course] or intensive_rules[course], then call
+        determine_course_value with that rule. If no rules found, fallback to
+        zero-credit default.
+        """
+        mc    = r["Mapped Course"]
+        grd   = r["Grade"]
+        ordv  = sem_to_ord(r["Semester"], r["Year"])
+        # Gather all possible rules for this mapped course (target + intensive)
+        rules = []
+        if mc in target_rules:
+            rules.extend(target_rules[mc])
+        if mc in intensive_rules:
+            rules.extend(intensive_rules[mc])
+
+        if not rules:
+            # fallback to zero-credit rule if nothing configured
+            return determine_course_value(grd, mc, {"Credits": 0, "PassingGrades": ""})
+
+        # Find the one rule whose FromOrd <= ordv <= ToOrd
+        for rule in rules:
+            if rule["FromOrd"] <= ordv <= rule["ToOrd"]:
+                return determine_course_value(grd, mc, rule)
+
+        # If none found in range, default to the first rule
+        return determine_course_value(grd, mc, rules[0])
+
+    # Apply the compute_processed_value to every row
+    df["ProcessedValue"] = df.apply(compute_processed_value, axis=1)
+
+    # --- 3) Split into required, intensive, extra based on Mapped Course presence ---
+    extra_df     = df[
+        ~df["Mapped Course"].isin(target_courses.keys()) &
+        ~df["Mapped Course"].isin(intensive_courses.keys())
+    ]
+    req_df       = df[df["Mapped Course"].isin(target_courses.keys())]
+    intensive_df = df[df["Mapped Course"].isin(intensive_courses.keys())]
+
+    # --- 4) Pivot on ProcessedValue for required and intensive ---
+    pivot_req = req_df.pivot_table(
+        index=["ID","NAME"],
+        columns="Mapped Course",
+        values="ProcessedValue",
+        aggfunc=lambda vals: ", ".join(vals)
+    ).reset_index()
+
+    pivot_int = intensive_df.pivot_table(
+        index=["ID","NAME"],
+        columns="Mapped Course",
+        values="ProcessedValue",
+        aggfunc=lambda vals: ", ".join(vals)
+    ).reset_index()
+
+    # --- 5) Ensure every required/intensive column appears, fill missing with "NR" ---
+    for course in target_courses:
+        if course not in pivot_req.columns:
+            pivot_req[course] = "NR"
+        pivot_req[course] = pivot_req[course].fillna("NR")
+
+    for course in intensive_courses:
+        if course not in pivot_int.columns:
+            pivot_int[course] = "NR"
+        pivot_int[course] = pivot_int[course].fillna("NR")
+
+    result_df           = pivot_req[["ID","NAME"] + list(target_courses.keys())]
+    intensive_result_df = pivot_int[["ID","NAME"] + list(intensive_courses.keys())]
+
+    # --- 6) Remove assigned courses from extra_df if per_student_assignments is provided ---
+    if per_student_assignments:
+        assigned_pairs = {
+            (sid, crs)
+            for sid, assigns in per_student_assignments.items()
+            for crs in assigns.values()
+        }
+        # Build a temporary key to filter
+        extra_df["_pair"] = list(zip(extra_df["ID"].astype(str), extra_df["Course"]))
+        extra_df = extra_df[~extra_df["_pair"].isin(assigned_pairs)].drop(columns=["_pair"])
+
+    extra_courses_list = sorted(extra_df["Course"].unique())
+    return result_df, intensive_result_df, extra_df, extra_courses_list
+
 def determine_course_value(grade, course, info):
     """
     Given a single rule 'info' dict with:
@@ -127,100 +265,6 @@ def determine_course_value(grade, course, info):
     else:
         return f"{all_toks} | PASS" if passed else f"{all_toks} | FAIL"
 
-def process_progress_report(
-    df,
-    credits_map,
-    intensive_credits,
-    per_student_assignments=None,
-    equivalent_courses_mapping=None
-):
-    if equivalent_courses_mapping is None:
-        equivalent_courses_mapping = {}
-
-    df = df.copy()
-    df["Mapped Course"] = df["Course"].apply(
-        lambda x: equivalent_courses_mapping.get(x, x)
-    )
-
-    # 1) S.C.E. / F.E.C. overrides
-    if per_student_assignments:
-        allowed = get_allowed_assignment_types()
-        def map_asg(r):
-            sid     = str(r["ID"])
-            crs     = r["Course"]
-            mc      = r["Mapped Course"]
-            assigns = per_student_assignments.get(sid, {})
-            for t in allowed:
-                if assigns.get(t) == crs:
-                    return t
-            return mc
-        df["Mapped Course"] = df.apply(map_asg, axis=1)
-
-    # 2) Row‐wise rule selection & formatting
-    target_rules    = st.session_state["target_course_rules"]
-    intensive_rules = st.session_state["intensive_course_rules"]
-
-    def compute_val(r):
-        mc     = r["Mapped Course"]
-        grd    = r["Grade"]
-        ordval = sem_to_ord(r["Semester"], r["Year"])
-        rules  = target_rules.get(mc, []) + intensive_rules.get(mc, [])
-        if not rules:
-            # fallback zero-credit
-            return determine_course_value(grd, mc, {"Credits":0, "PassingGrades":""})
-        for rule in rules:
-            if rule["FromOrd"] <= ordval <= rule["ToOrd"]:
-                return determine_course_value(grd, mc, rule)
-        return determine_course_value(grd, mc, rules[0])
-
-    df["ProcessedValue"] = df.apply(compute_val, axis=1)
-
-    # 3) Split into required, intensive, extra
-    extra_df        = df[
-        ~df["Mapped Course"].isin(credits_map.keys()) &
-        ~df["Mapped Course"].isin(intensive_credits.keys())
-    ]
-    req_df          = df[df["Mapped Course"].isin(credits_map.keys())]
-    intensive_df    = df[df["Mapped Course"].isin(intensive_credits.keys())]
-
-    # 4) Pivot on ProcessedValue
-    pivot_req = req_df.pivot_table(
-        index=["ID","NAME"],
-        columns="Mapped Course",
-        values="ProcessedValue",
-        aggfunc=lambda vals: ", ".join(vals)
-    ).reset_index()
-    pivot_int = intensive_df.pivot_table(
-        index=["ID","NAME"],
-        columns="Mapped Course",
-        values="ProcessedValue",
-        aggfunc=lambda vals: ", ".join(vals)
-    ).reset_index()
-
-    # 5) Ensure all columns exist (fill "NR")
-    for c in credits_map:
-        pivot_req[c] = pivot_req.get(c, "NR")
-        pivot_req[c] = pivot_req[c].fillna("NR")
-    for c in intensive_credits:
-        pivot_int[c] = pivot_int.get(c, "NR")
-        pivot_int[c] = pivot_int[c].fillna("NR")
-
-    result_df           = pivot_req[["ID","NAME"] + list(credits_map.keys())]
-    intensive_result_df = pivot_int[["ID","NAME"] + list(intensive_credits.keys())]
-
-    # 6) Remove assigned from extras
-    if per_student_assignments:
-        assigned = {
-            (sid, crs)
-            for sid, assigns in per_student_assignments.items()
-            for crs in assigns.values()
-        }
-        extra_df["_k"] = list(zip(extra_df["ID"].astype(str), extra_df["Course"]))
-        extra_df = extra_df[~extra_df["_k"].isin(assigned)].drop(columns=["_k"])
-
-    extra_courses_list = sorted(extra_df["Course"].unique())
-    return result_df, intensive_result_df, extra_df, extra_courses_list
-
 def calculate_credits(row, courses_dict):
     """
     Calculates Completed, Registered, Remaining, Total Credits.
@@ -245,7 +289,6 @@ def calculate_credits(row, courses_dict):
         val  = row.get(course, "")
 
         if isinstance(val, str):
-            up      = val.upper()
             entries = [e.strip() for e in val.split(",") if e.strip()]
 
             # CR anywhere → registered
@@ -266,6 +309,7 @@ def calculate_credits(row, courses_dict):
                         if parts[1].upper() == "PASS":
                             passed = True
                             break
+
             if passed:
                 completed += cred
             else:
