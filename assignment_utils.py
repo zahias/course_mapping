@@ -62,11 +62,11 @@ def load_assignments(db_path: str = "assignments.db", csv_path: str = "sce_fec_a
     otherwise falling back to the SQLite database at `db_path`.
 
     Returns a dict:
-        {
-          "student_id_1": {"S.C.E.": "COURSEX", "F.E.C.": "COURSEY", ...},
-          "student_id_2": {...},
-           ...
-        }
+      {
+        "student_id_1": {"S.C.E.": "COURSEX", "F.E.C.": "COURSEY", ...},
+        "student_id_2": {...},
+         ...
+      }
     """
     # 1) Try to read from CSV first
     if os.path.exists(csv_path):
@@ -129,7 +129,7 @@ def validate_assignments(edited_df: pd.DataFrame, per_student_assignments: dict)
                 else:
                     new_assignments[student_id][assign_type] = course
 
-    # Merge new_assignments into the existing per_student_assignments
+    # Merge new_assignments into existing per_student_assignments
     for student_id, assigns in new_assignments.items():
         if student_id not in per_student_assignments:
             per_student_assignments[student_id] = assigns
