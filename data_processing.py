@@ -184,6 +184,11 @@ def process_progress_report(
 
 def determine_course_value(grade: str, course: str, courses_dict: dict, rules_list: list):
     """
+    course: mapped course code being processed.
+    courses_dict: dictionary of available courses and credits.
+    rules_list: list of rule dictionaries specifying valid term ranges, credits
+        and passing grades.
+
     Processes a course grade, taking into account:
       - Numeric credits (for non‐zero‐credit courses)
       - PASS/FAIL for zero‐credit courses
