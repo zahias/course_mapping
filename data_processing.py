@@ -237,7 +237,7 @@ def determine_course_value(grade: str, course: str, courses_dict: dict, rules_li
 def calculate_credits(row: pd.Series, courses_dict: dict):
     """
     Calculates Completed, Registered, Remaining, Total Credits.
-    - If any "CR" appears in a multi‐attemp cell → count as Registered (not Completed).
+    - If any "CR" appears in a multi‐attempt cell → count as Registered (not Completed).
     - If any token has numeric > 0 or PASS → count as Completed.
     - Else → Remaining.
     """
