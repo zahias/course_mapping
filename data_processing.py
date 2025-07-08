@@ -1,3 +1,5 @@
+# data_processing.py
+
 import pandas as pd
 import streamlit as st
 from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
@@ -6,14 +8,14 @@ def read_progress_report(filepath):
     """
     Reads an uploaded progress report (Excel or CSV), in either:
       - “long” format with columns [ID or STUDENT ID, NAME, Course, Grade, Year, Semester]
-      - “wide” format with columns ID/NAME plus COURSE_* or COURSE * columns
+      - “wide” format with columns ID/NAME plus COURSE… columns
     Returns a long‐format DataFrame with exactly ['ID','NAME','Course','Grade','Year','Semester'] or None on error.
     """
     try:
         # Excel files
         if filepath.lower().endswith(('.xlsx', '.xls')):
             xls = pd.ExcelFile(filepath)
-            # If there is a sheet literally named "Progress Report", read that long‐form
+            # If there is a sheet named "Progress Report", read that long‐form
             if 'Progress Report' in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name='Progress Report')
                 required = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
@@ -22,7 +24,7 @@ def read_progress_report(filepath):
                     st.error(f"Missing columns: {missing}")
                     return None
                 return df[list(required)]
-            # Otherwise, pull the first sheet and attempt to transform wide → long
+            # Otherwise, pull the first sheet and attempt wide‐to‐long
             df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
             transformed = transform_wide_format(df)
             if transformed is None:
@@ -34,6 +36,13 @@ def read_progress_report(filepath):
             df = pd.read_csv(filepath)
             if {'Course','Grade','Year','Semester'}.issubset(df.columns):
                 # assume long form
+                if 'ID' not in df.columns and 'STUDENT ID' not in df.columns:
+                    st.error("Missing 'ID' or 'STUDENT ID' in CSV.")
+                    return None
+                if 'NAME' not in df.columns:
+                    st.error("Missing 'NAME' in CSV.")
+                    return None
+                df = df.rename(columns={'STUDENT ID': 'ID'}) if 'STUDENT ID' in df.columns else df
                 return df[['ID','NAME','Course','Grade','Year','Semester']]
             # otherwise try wide form
             transformed = transform_wide_format(df)
@@ -42,7 +51,7 @@ def read_progress_report(filepath):
             return transformed
 
         else:
-            st.error("Unsupported file format. Upload an Excel or CSV.")
+            st.error("Unsupported file format. Please upload an Excel or CSV file.")
             return None
 
     except Exception as e:
@@ -53,7 +62,7 @@ def read_progress_report(filepath):
 def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
     """
     Converts a wide‐format progress sheet into long form.
-    Detects an ID column ('ID' or 'STUDENT ID') plus any 'COURSE…' columns.
+    Detects an ID column ('ID' or 'STUDENT ID') plus any columns starting with 'COURSE'
     Expects each cell as 'COURSECODE/SEMESTER-YEAR/GRADE'.
     Returns a DataFrame with columns ['ID','NAME','Course','Grade','Year','Semester'].
     """
@@ -94,7 +103,7 @@ def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
     # 6) Split COURSECODE/SEMESTER-YEAR/GRADE
     parts = df_melt['CourseData'].str.split('/', expand=True)
     if parts.shape[1] < 3:
-        st.error("Parsing error: expected 'CODE/SEM-YYYY/GRADE'.")
+        st.error("Parsing error: expected 'CODE/SEMESTER-YEAR/GRADE'.")
         return None
 
     df_melt['Course'] = parts[0].str.strip().str.upper()
@@ -126,12 +135,13 @@ def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
 
 def read_equivalent_courses(equivalent_courses_df):
     mapping = {}
-    for idx, row in equivalent_courses_df.iterrows():
+    for _, row in equivalent_courses_df.iterrows():
         primary = row["Course"].strip().upper()
         equivalents = [x.strip().upper() for x in str(row["Equivalent"]).split(",")]
         for eq in equivalents:
             mapping[eq] = primary
     return mapping
+
 
 def process_progress_report(
     df: pd.DataFrame,
@@ -146,19 +156,18 @@ def process_progress_report(
     df: the raw long‐format progress data
     target_courses: { course_code: credits, ... }
     intensive_courses: { course_code: credits, ... }
-    target_rules:    { course_code: [ {Credits, PassingGrades, FromOrd, ToOrd}, ... ], ... }
-    intensive_rules: { course_code: [ {Credits, PassingGrades, FromOrd, ToOrd}, ... ], ... }
+    target_rules:    { course_code: [rule_dicts], ... }
+    intensive_rules: { course_code: [rule_dicts], ... }
     per_student_assignments: { student_id: { assign_type: course, ... }, ... }
     equivalent_courses_mapping: { alt_code: primary_code, ... }
     """
-
     if equivalent_courses_mapping is None:
         equivalent_courses_mapping = {}
 
     # 1) Map equivalents
     df["Mapped Course"] = df["Course"].apply(lambda x: equivalent_courses_mapping.get(x, x))
 
-    # 2) Apply S.C.E./F.E.C. (or any assignment types)
+    # 2) Apply assignments (S.C.E./F.E.C.)
     if per_student_assignments:
         allowed_types = get_allowed_assignment_types()
         def map_assignment(row):
@@ -171,17 +180,15 @@ def process_progress_report(
                     if assigns.get(atype) == course:
                         return atype
             return mapped
-
         df["Mapped Course"] = df.apply(map_assignment, axis=1)
 
-    # 3) Pre‐format each row so CR isn’t lost & embed rule logic
+    # 3) Compute ProcessedValue
     df["ProcessedValue"] = df.apply(
         lambda r: determine_course_value(
             r["Grade"],
             r["Mapped Course"],
             target_courses if r["Mapped Course"] in target_courses else
-            intensive_courses if r["Mapped Course"] in intensive_courses else
-            {},
+            intensive_courses if r["Mapped Course"] in intensive_courses else {},
             (target_rules.get(r["Mapped Course"], []) if r["Mapped Course"] in target_rules else
              intensive_rules.get(r["Mapped Course"], []))
         ),
@@ -189,147 +196,109 @@ def process_progress_report(
     )
 
     # 4) Split into required, intensive, extra
-    extra_courses_df = df[
-        (~df["Mapped Course"].isin(target_courses.keys())) &
-        (~df["Mapped Course"].isin(intensive_courses.keys()))
-    ]
-    target_df = df[df["Mapped Course"].isin(target_courses.keys())]
+    extra_df     = df[~df["Mapped Course"].isin(target_courses.keys())
+                      & ~df["Mapped Course"].isin(intensive_courses.keys())]
+    target_df    = df[df["Mapped Course"].isin(target_courses.keys())]
     intensive_df = df[df["Mapped Course"].isin(intensive_courses.keys())]
 
-    # 5) Pivot on ProcessedValue
-    pivot_df = target_df.pivot_table(
-        index=["ID", "NAME"],
+    # 5) Pivot
+    pivot = target_df.pivot_table(
+        index=["ID","NAME"],
+        columns="Mapped Course",
+        values="ProcessedValue",
+        aggfunc=lambda vals: ", ".join(vals)
+    ).reset_index()
+    int_pivot = intensive_df.pivot_table(
+        index=["ID","NAME"],
         columns="Mapped Course",
         values="ProcessedValue",
         aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
 
-    intensive_pivot_df = intensive_df.pivot_table(
-        index=["ID", "NAME"],
-        columns="Mapped Course",
-        values="ProcessedValue",
-        aggfunc=lambda vals: ", ".join(vals)
-    ).reset_index()
-
-    # 6) Fill missing columns with "NR"
+    # 6) Fill missing with "NR"
     for course in target_courses:
-        if course not in pivot_df.columns:
-            pivot_df[course] = "NR"
-        else:
-            pivot_df[course] = pivot_df[course].fillna("NR")
-
+        pivot[course] = pivot.get(course, pd.Series()).fillna("NR")
     for course in intensive_courses:
-        if course not in intensive_pivot_df.columns:
-            intensive_pivot_df[course] = "NR"
-        else:
-            intensive_pivot_df[course] = intensive_pivot_df[course].fillna("NR")
+        int_pivot[course] = int_pivot.get(course, pd.Series()).fillna("NR")
 
-    result_df = pivot_df[["ID", "NAME"] + list(target_courses.keys())]
-    intensive_result_df = intensive_pivot_df[["ID", "NAME"] + list(intensive_courses.keys())]
+    result_df          = pivot[["ID","NAME"] + list(target_courses.keys())]
+    intensive_result_df = int_pivot[["ID","NAME"] + list(intensive_courses.keys())]
 
-    # 7) Remove assigned courses from extras
+    # 7) Exclude assigned extras
     if per_student_assignments:
         assigned = [
             (sid, crs)
             for sid, assigns in per_student_assignments.items()
             for crs in assigns.values()
         ]
-        extra_courses_df = extra_courses_df[
-            ~extra_courses_df.apply(
-                lambda row: (str(row["ID"]), row["Course"]) in assigned, axis=1
-            )
-        ]
+        extra_df = extra_df[~extra_df.apply(
+            lambda row: (str(row["ID"]), row["Course"]) in assigned, axis=1
+        )]
 
-    extra_courses_list = sorted(extra_courses_df["Course"].unique())
-    return result_df, intensive_result_df, extra_courses_df, extra_courses_list
+    extra_courses_list = sorted(extra_df["Course"].unique())
+    return result_df, intensive_result_df, extra_df, extra_courses_list
+
 
 def determine_course_value(grade: str, course: str, courses_dict: dict, rules_list: list):
     """
-    course: mapped course code being processed.
-    courses_dict: dictionary of available courses and credits.
-    rules_list: list of rule dictionaries specifying valid term ranges, credits
-        and passing grades.
-
-    Processes a course grade, taking into account:
-      - Numeric credits (for non‐zero‐credit courses)
-      - PASS/FAIL for zero‐credit courses
-      - A list of rule‐dicts specifying FromOrd ≤ course_term_ord ≤ ToOrd and PassingGrades for each term‐range
-
-    rules_list: [
-      {"Credits": int, "PassingGrades": "A+,A,A-", "FromOrd": 10, "ToOrd": 16},
-      {"Credits": int, "PassingGrades": "B+,B,B-", "FromOrd": 17, "ToOrd": 99},
-      ...
-    ]
+    Processes a course grade into:
+      - "NR" if not registered
+      - ""   if failed
+      - "<tokens> | <credits>" if passed
     """
-
-    # If the course isn't in our rule table at all, fallback:
-    info = {"Credits": 0, "PassingGrades": ""} if not rules_list else None
-
     if rules_list:
-        # We need to pick the rule entry whose FromOrd ≤ current term ≤ ToOrd.
-        # But since we don't know the student's term here, we skip that direct check.
-        # Instead, in this app, we assume all grade values use the same credits & passing‐grades
-        # that were specified when this value was computed in step 3.
-        # So at this point, rules_list was only passed in to show that this course was valid.
-        # The actual credits and passing logic come from the original credits & passing string.
-        # Thus, we simply pick the first rule in the list (which has the correct Credits+PassingGrades).
         rule = rules_list[0]
         credits = rule["Credits"]
         passing = rule["PassingGrades"]
     else:
-        credits = info["Credits"]
-        passing = info["PassingGrades"]
+        credits = 0
+        passing = ""
 
-    if pd.isna(grade):
+    if pd.isna(grade) or str(grade).strip().upper() == "NR":
         return "NR"
-    elif grade == "":
-        return f"CR | {credits}" if credits > 0 else "CR | PASS"
-    else:
-        tokens = [g.strip().upper() for g in grade.split(", ") if g.strip()]
-        all_toks = ", ".join(tokens)
-        allowed = [x.strip().upper() for x in passing.split(",")] if passing else []
-        passed = any(g in allowed for g in tokens)
+    if grade == "":
+        return ""  # failed
+    tokens = [g.strip().upper() for g in grade.split(",") if g.strip()]
+    all_toks = ", ".join(tokens)
+    allowed  = [x.strip().upper() for x in passing.split(",")] if passing else []
+    passed   = any(g in allowed for g in tokens)
 
-        if credits > 0:
-            return f"{all_toks} | {credits}" if passed else f"{all_toks} | 0"
-        else:
-            return f"{all_toks} | PASS" if passed else f"{all_toks} | FAIL"
+    if credits > 0:
+        return f"{all_toks} | {credits}" if passed else f"{all_toks} | 0"
+    else:
+        return f"{all_toks} | PASS" if passed else f"{all_toks} | FAIL"
+
 
 def calculate_credits(row: pd.Series, courses_dict: dict):
     """
-    Calculates Completed, Registered, Remaining, Total Credits.
-    - If any "CR" appears in a multi‐attempt cell → count as Registered (not Completed).
-    - If any token has numeric > 0 or PASS → count as Completed.
-    - Else → Remaining.
+    Calculates Completed, Registered, Remaining, Total Credits
+    based on values like "NR", "" (fail), or "XXX | N".
     """
-    completed, registered, remaining = 0, 0, 0
-    total = sum(info for info in courses_dict.values())
+    completed = registered = remaining = 0
+    total     = sum(courses_dict.values())
 
     for course, cred in courses_dict.items():
         val = row.get(course, "")
         if isinstance(val, str):
             entries = [e.strip() for e in val.split(",") if e.strip()]
-
-            # 1) Registered (CR precedence)
-            if any(e.upper().startswith("CR") for e in entries):
+            # Registered takes precedence
+            if any(e.upper() == "NR" for e in entries):
                 registered += cred
                 continue
-
-            # 2) Completed if any numeric > 0 or PASS
+            # Check for PASS or numeric > 0
             passed = False
             for e in entries:
                 parts = [p.strip() for p in e.split("|")]
                 if len(parts) == 2:
-                    tok, num = parts
+                    right = parts[1].strip().upper()
                     try:
-                        if int(num) > 0:
+                        if int(right) > 0:
                             passed = True
                             break
                     except ValueError:
-                        if num.upper() == "PASS":
+                        if right == "PASS":
                             passed = True
                             break
-
             if passed:
                 completed += cred
             else:
@@ -342,7 +311,10 @@ def calculate_credits(row: pd.Series, courses_dict: dict):
         index=["# of Credits Completed", "# Registered", "# Remaining", "Total Credits"]
     )
 
-def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_df: pd.DataFrame, timestamp: str):
+
+def save_report_with_formatting(displayed_df: pd.DataFrame,
+                                intensive_displayed_df: pd.DataFrame,
+                                timestamp: str):
     import io
     from openpyxl import Workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
@@ -350,18 +322,19 @@ def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_
     from config import cell_color
 
     output = io.BytesIO()
-    workbook = Workbook()
-    ws_req = workbook.active
+    wb     = Workbook()
+    ws_req = wb.active
     ws_req.title = "Required Courses"
 
     light_green = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
     pink        = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
 
+    # Write required courses sheet
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
             cell = ws_req.cell(row=r_idx, column=c_idx, value=value)
             if r_idx == 1:
-                cell.font = Font(bold=True)
+                cell.font      = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 if value == "c":
@@ -377,12 +350,13 @@ def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_
                     else:
                         cell.fill = pink
 
-    ws_int = workbook.create_sheet(title="Intensive Courses")
+    # Intensive sheet
+    ws_int = wb.create_sheet(title="Intensive Courses")
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
             cell = ws_int.cell(row=r_idx, column=c_idx, value=value)
             if r_idx == 1:
-                cell.font = Font(bold=True)
+                cell.font      = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 if value == "c":
@@ -398,6 +372,6 @@ def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_
                     else:
                         cell.fill = pink
 
-    workbook.save(output)
+    wb.save(output)
     output.seek(0)
     return output
