@@ -245,6 +245,11 @@ def process_progress_report(
 
 def determine_course_value(grade: str, course: str, courses_dict: dict, rules_list: list):
     """
+    course: mapped course code being processed.
+    courses_dict: dictionary of available courses and credits.
+    rules_list: list of rule dictionaries specifying valid term ranges, credits
+        and passing grades.
+
     Processes a course grade, taking into account:
       - Numeric credits (for non‐zero‐credit courses)
       - PASS/FAIL for zero‐credit courses
@@ -293,7 +298,7 @@ def determine_course_value(grade: str, course: str, courses_dict: dict, rules_li
 def calculate_credits(row: pd.Series, courses_dict: dict):
     """
     Calculates Completed, Registered, Remaining, Total Credits.
-    - If any "CR" appears in a multi‐attemp cell → count as Registered (not Completed).
+    - If any "CR" appears in a multi‐attempt cell → count as Registered (not Completed).
     - If any token has numeric > 0 or PASS → count as Completed.
     - Else → Remaining.
     """
