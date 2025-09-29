@@ -71,6 +71,10 @@ if st.button("Reload Progress from Google Drive"):
             df = read_progress_report(local_path)
             if df is not None:
                 st.session_state[f"{major}_raw_df"] = df
+                # ADDED: make progress available to the Student Progress page
+                st.session_state["progress_long_df"] = df.copy()
+                st.session_state["progress_last_loaded_at"] = datetime.now().isoformat()
+
                 st.success(f"Reloaded '{drive_filename}' from Google Drive.")
             else:
                 st.error("Downloaded file could not be parsed as a Progress Report.")
