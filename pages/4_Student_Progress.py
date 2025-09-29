@@ -2,15 +2,14 @@
 import pandas as pd
 import streamlit as st
 from io import BytesIO
-from data_processing import read_progress_report
 
 st.set_page_config(page_title="Student Progress", page_icon="📈", layout="wide")
 
 def _semester_order_key(sem: str) -> int:
+    """Order semesters for sorting (adjust if your institution differs)."""
     if not isinstance(sem, str):
         return 99
     s = sem.strip().lower()
-    # tune this if your institution uses different terms
     if s in ("winter",):
         return 0
     if s in ("spring",):
@@ -27,55 +26,20 @@ def _to_int_safe(x):
     except Exception:
         return None
 
-def _get_long_progress_df():
-    """
-    Try to use a long-form progress DataFrame from session_state.
-    If not found, allow the user to upload a progress report here.
-    The reader accepts both long-form and wide-form files.
-    """
-    # Prefer what the app may have already loaded
-    for key in ("progress_long_df", "progress_report_long", "long_progress_df"):
-        if key in st.session_state and isinstance(st.session_state[key], pd.DataFrame):
-            df = st.session_state[key]
-            needed = {"ID", "NAME", "Course", "Grade", "Year", "Semester"}
-            if needed.issubset(df.columns):
-                return df.copy()
-
-    st.info("No long-form progress data found in memory. Upload a progress report below.")
-
-    uploaded = st.file_uploader(
-        "Upload Progress Report (.xlsx/.xls/.csv)",
-        type=["xlsx", "xls", "csv"],
-        accept_multiple_files=False,
-        key="student_progress_uploader"
-    )
-    if not uploaded:
-        return None
-
-    # read_progress_report now accepts both path-like and UploadedFile
-    df = read_progress_report(uploaded)
-    if df is None:
-        return None
-
-    # Cache for other pages if desired
-    st.session_state["progress_long_df"] = df.copy()
-    return df
-
 def _export_student_history_to_excel(student_name, student_id, hist_df: pd.DataFrame) -> bytes:
     """
     Export a student's course history to an Excel file in-memory.
     """
     bio = BytesIO()
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
-        # Write a small header sheet with metadata
+        # Metadata sheet
         meta = pd.DataFrame({
             "Field": ["Student Name", "Student ID"],
             "Value": [student_name, student_id]
         })
         meta.to_excel(writer, index=False, sheet_name="Info")
 
-        # Write the detailed history
-        # Columns: Year, Semester, Course, Grade
+        # History sheet
         out_df = hist_df[["Year", "Semester", "Course", "Grade"]].copy()
         out_df.to_excel(writer, index=False, sheet_name="Course History")
 
@@ -108,26 +72,43 @@ def _export_student_history_to_excel(student_name, student_id, hist_df: pd.DataF
 def main():
     st.title("📈 Student Progress (Across Years)")
 
-    long_df = _get_long_progress_df()
+    # ---- Source of truth: long-form progress in session ----
+    # Populated by the Main page when the progress report is loaded/reloaded.
+    df_key_candidates = ("progress_long_df", "progress_report_long", "long_progress_df")
+    long_df = None
+    for k in df_key_candidates:
+        if k in st.session_state and isinstance(st.session_state[k], pd.DataFrame):
+            cand = st.session_state[k]
+            need = {"ID", "NAME", "Course", "Grade", "Year", "Semester"}
+            if need.issubset(cand.columns):
+                long_df = cand.copy()
+                break
+
     if long_df is None or long_df.empty:
+        st.warning(
+            "No progress data available yet. "
+            "Please load the progress report on the **Main** page."
+        )
+        # If you’re on Streamlit >= 1.32, you can uncomment the button below for quick navigation:
+        # if st.button("Go to Main page"):
+        #     st.switch_page("main.py")
         st.stop()
 
-    # Clean / normalize basics
+    # ---- Normalization (non-destructive) ----
     must_cols = ["ID", "NAME", "Course", "Grade", "Year", "Semester"]
     missing = [c for c in must_cols if c not in long_df.columns]
     if missing:
-        st.error(f"Uploaded/loaded progress report is missing columns: {missing}")
+        st.error(f"Loaded progress report is missing columns: {missing}")
         st.stop()
 
-    # Normalization
     long_df["Course"] = long_df["Course"].astype(str).str.strip().str.upper()
     long_df["Grade"] = long_df["Grade"].astype(str).str.strip().str.upper()
     long_df["Semester"] = long_df["Semester"].astype(str).str.strip().str.title()
     long_df["Year_int"] = long_df["Year"].apply(_to_int_safe)
     long_df["SemKey"] = long_df["Semester"].apply(_semester_order_key)
-
-    # Student selector
     long_df["ID_str"] = long_df["ID"].astype(str)
+
+    # ---- Student selector ----
     student_options = (
         long_df[["ID_str", "NAME"]]
         .drop_duplicates()
@@ -136,7 +117,7 @@ def main():
     )["label"].tolist()
 
     if not student_options:
-        st.warning("No students found in the provided progress report.")
+        st.warning("No students found in progress data.")
         st.stop()
 
     selected_label = st.selectbox("Select a student", student_options, index=0)
@@ -149,21 +130,25 @@ def main():
 
     student_df = student_df.sort_values(["Year_int", "SemKey", "Course"])
 
-    # Header cards
+    # ---- Header cards ----
     s_name = student_df["NAME"].iloc[0]
     c1, c2, c3 = st.columns([2, 1, 1])
     c1.metric("Student", s_name)
     c2.metric("ID", sel_id)
-    year_span = f"{student_df['Year_int'].min()} – {student_df['Year_int'].max()}" if pd.notna(student_df['Year_int']).any() else "N/A"
-    c3.metric("Years Covered", year_span)
+    if pd.notna(student_df["Year_int"]).any():
+        y_min = int(student_df["Year_int"].dropna().min())
+        y_max = int(student_df["Year_int"].dropna().max())
+        c3.metric("Years Covered", f"{y_min} – {y_max}")
+    else:
+        c3.metric("Years Covered", "N/A")
 
-    # Group display by Year then Semester
+    # ---- Timeline (Year ➜ Semester ➜ Courses/Grades) ----
     st.markdown("### Timeline")
     years = student_df["Year_int"].dropna().unique().tolist()
-    years = sorted([int(y) for y in years])
+    years = sorted([int(y) for y in years]) if years else []
 
     if not years:
-        # Fallback if Year was not parseable
+        # Fallback if Year wasn’t parseable
         block = student_df[["Year", "Semester", "Course", "Grade"]].rename(
             columns={"Year": "Year (raw)"}
         )
@@ -184,15 +169,15 @@ def main():
                 display = sem_block[["Course", "Grade"]].reset_index(drop=True)
                 st.dataframe(display, use_container_width=True)
 
-    # Full flat view (optional)
+    # ---- Optional: full flat view ----
     with st.expander("Show full table"):
         flat = student_df[["Year_int", "Semester", "Course", "Grade"]].rename(
             columns={"Year_int": "Year"}
         )
         st.dataframe(flat, use_container_width=True, height=400)
 
-    # Download button
-    export_df = student_df.rename(columns={"Year_int": "Year"})  # restore Year header
+    # ---- Download ----
+    export_df = student_df.rename(columns={"Year_int": "Year"})
     excel_bytes = _export_student_history_to_excel(s_name, sel_id, export_df)
     st.download_button(
         "Download Course History (Excel)",
