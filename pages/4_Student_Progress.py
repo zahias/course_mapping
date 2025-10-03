@@ -1,205 +1,235 @@
-# 5_Student_Progress.py
-import pandas as pd
 import streamlit as st
+import pandas as pd
 from io import BytesIO
-from data_processing import read_progress_report
 
-st.set_page_config(page_title="Student Progress", page_icon="📈", layout="wide")
+# NOTE:
+# - This page reads the parsed progress DataFrame directly from session_state,
+#   which is populated in `main.py` when you upload or reload the progress report.
+# - No additional upload is needed here.
 
-def _semester_order_key(sem: str) -> int:
-    if not isinstance(sem, str):
-        return 99
-    s = sem.strip().lower()
-    # tune this if your institution uses different terms
-    if s in ("winter",):
-        return 0
-    if s in ("spring",):
-        return 1
-    if s in ("summer",):
-        return 2
-    if s in ("fall", "autumn"):
-        return 3
-    return 99
 
-def _to_int_safe(x):
-    try:
-        return int(str(x).strip())
-    except Exception:
-        return None
+# ---------- Helpers ----------
 
-def _get_long_progress_df():
+def _require_major_and_data():
+    """Ensure a major is selected and raw df is present in session_state."""
+    if "selected_major" not in st.session_state or not st.session_state["selected_major"]:
+        st.warning("Please go to the **main page** and select a Major.")
+        st.stop()
+
+    major = st.session_state["selected_major"]
+    key = f"{major}_raw_df"
+    if key not in st.session_state:
+        st.info("No progress report found in memory. "
+                "Please upload or reload the progress file from the **main page**.")
+        st.stop()
+
+    df = st.session_state[key]
+    if df is None or df.empty:
+        st.info("The loaded progress report appears to be empty. "
+                "Please upload or reload the progress file from the **main page**.")
+        st.stop()
+    return major, df
+
+
+@st.cache_data(show_spinner=False)
+def _prepare_student_progress_df(df: pd.DataFrame):
     """
-    Try to use a long-form progress DataFrame from session_state.
-    If not found, allow the user to upload a progress report here.
-    The reader accepts both long-form and wide-form files.
+    Clean and prepare the long-format progress df:
+    Ensures consistent casing and a sortable term order column.
+    Expected input columns: ['ID','NAME','Course','Grade','Year','Semester']
     """
-    # Prefer what the app may have already loaded
-    for key in ("progress_long_df", "progress_report_long", "long_progress_df"):
-        if key in st.session_state and isinstance(st.session_state[key], pd.DataFrame):
-            df = st.session_state[key]
-            needed = {"ID", "NAME", "Course", "Grade", "Year", "Semester"}
-            if needed.issubset(df.columns):
-                return df.copy()
+    work = df.copy()
 
-    st.info("No long-form progress data found in memory. Upload a progress report below.")
+    # Clean common columns
+    for col in ["Course", "Grade"]:
+        if col in work.columns:
+            work[col] = work[col].astype(str).str.strip()
 
-    uploaded = st.file_uploader(
-        "Upload Progress Report (.xlsx/.xls/.csv)",
-        type=["xlsx", "xls", "csv"],
-        accept_multiple_files=False,
-        key="student_progress_uploader"
-    )
-    if not uploaded:
-        return None
+    # Normalize Semester and Year text
+    if "Semester" in work.columns:
+        work["Semester"] = work["Semester"].astype(str).str.strip().str.title()
+    if "Year" in work.columns:
+        work["Year"] = work["Year"].astype(str).str.strip()
 
-    # read_progress_report now accepts both path-like and UploadedFile
-    df = read_progress_report(uploaded)
-    if df is None:
-        return None
+    # Map a term sort order (Spring < Summer < Fall by default)
+    term_order_map = {"Spring": 1, "Summer": 2, "Fall": 3}
+    work["TermOrder"] = work["Semester"].map(lambda s: term_order_map.get(str(s).title(), 99))
 
-    # Cache for other pages if desired
-    st.session_state["progress_long_df"] = df.copy()
-    return df
+    # Make a combined term label like "Fall-2024"
+    work["Term"] = work["Semester"].fillna("") + "-" + work["Year"].fillna("")
 
-def _export_student_history_to_excel(student_name, student_id, hist_df: pd.DataFrame) -> bytes:
-    """
-    Export a student's course history to an Excel file in-memory.
-    """
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl") as writer:
-        # Write a small header sheet with metadata
-        meta = pd.DataFrame({
-            "Field": ["Student Name", "Student ID"],
-            "Value": [student_name, student_id]
+    # Sort by (Year asc, TermOrder asc), then Course
+    # Convert Year to numeric where possible for proper sorting
+    def _to_int(x):
+        try:
+            return int(str(x))
+        except Exception:
+            return 0
+    work["_YearInt"] = work["Year"].apply(_to_int)
+    work = work.sort_values(by=["_YearInt", "TermOrder", "Course"], ascending=[True, True, True]).reset_index(drop=True)
+
+    # Columns for display
+    display_cols = ["ID", "NAME", "Year", "Semester", "Course", "Grade"]
+    display_df = work[display_cols].copy()
+
+    return display_df
+
+
+def _download_student_progress_excel(student_df: pd.DataFrame, student_name: str, student_id: str) -> BytesIO:
+    """Create an Excel file for a single student's progress (sorted by term)."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        # Order columns nicely
+        cols = ["Year", "Semester", "Course", "Grade"]
+        to_write = student_df[cols].copy().reset_index(drop=True)
+        to_write.to_excel(writer, sheet_name="Progress", index=False)
+
+        # Add a front sheet with student info
+        info_df = pd.DataFrame({
+            "Field": ["Student Name", "Student ID", "Total Courses"],
+            "Value": [student_name, student_id, len(to_write)]
         })
-        meta.to_excel(writer, index=False, sheet_name="Info")
+        info_df.to_excel(writer, sheet_name="Info", index=False)
 
-        # Write the detailed history
-        # Columns: Year, Semester, Course, Grade
-        out_df = hist_df[["Year", "Semester", "Course", "Grade"]].copy()
-        out_df.to_excel(writer, index=False, sheet_name="Course History")
+    output.seek(0)
+    return output
 
-        # Autosize columns (best-effort)
-        ws_hist = writer.sheets["Course History"]
-        for col in ws_hist.columns:
-            max_len = 0
-            col_letter = col[0].column_letter
-            for cell in col:
-                try:
-                    max_len = max(max_len, len(str(cell.value)))
-                except Exception:
-                    pass
-            ws_hist.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
-        ws_info = writer.sheets["Info"]
-        for col in ws_info.columns:
-            max_len = 0
-            col_letter = col[0].column_letter
-            for cell in col:
-                try:
-                    max_len = max(max_len, len(str(cell.value)))
-                except Exception:
-                    pass
-            ws_info.column_dimensions[col_letter].width = min(max_len + 2, 50)
+def _download_all_progress_excel(filtered_df: pd.DataFrame) -> BytesIO:
+    """Create an Excel with one sheet per student based on filtered view."""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sid, g in filtered_df.groupby("ID"):
+            sname = g["NAME"].iloc[0]
+            # sanitize sheet name
+            sheet_name = f"{str(sname)[:28]}"
+            # Order columns
+            cols = ["Year", "Semester", "Course", "Grade"]
+            g[cols].to_excel(writer, sheet_name=sheet_name or "Student", index=False)
+    output.seek(0)
+    return output
 
-    bio.seek(0)
-    return bio.getvalue()
 
-def main():
-    st.title("📈 Student Progress (Across Years)")
+# ---------- UI ----------
 
-    long_df = _get_long_progress_df()
-    if long_df is None or long_df.empty:
-        st.stop()
+st.title("Student Progress")
 
-    # Clean / normalize basics
-    must_cols = ["ID", "NAME", "Course", "Grade", "Year", "Semester"]
-    missing = [c for c in must_cols if c not in long_df.columns]
-    if missing:
-        st.error(f"Uploaded/loaded progress report is missing columns: {missing}")
-        st.stop()
+# Ensure we have a major and data in memory
+major, long_df = _require_major_and_data()
 
-    # Normalization
-    long_df["Course"] = long_df["Course"].astype(str).str.strip().str.upper()
-    long_df["Grade"] = long_df["Grade"].astype(str).str.strip().str.upper()
-    long_df["Semester"] = long_df["Semester"].astype(str).str.strip().str.title()
-    long_df["Year_int"] = long_df["Year"].apply(_to_int_safe)
-    long_df["SemKey"] = long_df["Semester"].apply(_semester_order_key)
+# Prepare standardized student progress dataframe (cached)
+progress_df = _prepare_student_progress_df(long_df)
+
+# Sidebar filters (keep the page clean & responsive)
+with st.sidebar:
+    st.header("Filters")
 
     # Student selector
-    long_df["ID_str"] = long_df["ID"].astype(str)
-    student_options = (
-        long_df[["ID_str", "NAME"]]
-        .drop_duplicates()
-        .assign(label=lambda d: d["ID_str"] + " - " + d["NAME"])
-        .sort_values("label")
-    )["label"].tolist()
+    student_options = (progress_df["ID"].astype(str) + " - " + progress_df["NAME"]).unique().tolist()
+    student_options = sorted(student_options, key=lambda x: x.split(" - ")[-1])  # sort by name
+    selected_student_option = st.selectbox("Select Student", ["— All Students —"] + student_options, index=0)
 
-    if not student_options:
-        st.warning("No students found in the provided progress report.")
-        st.stop()
+    # Year filter (multi)
+    years = sorted(progress_df["Year"].unique(), key=lambda x: (str(x)))
+    selected_years = st.multiselect("Filter by Year", options=years, default=years)
 
-    selected_label = st.selectbox("Select a student", student_options, index=0)
-    sel_id = selected_label.split(" - ")[0]
+    # Course name search
+    course_search = st.text_input("Search Course Code/Name", value="")
 
-    student_df = long_df[long_df["ID_str"] == sel_id].copy()
-    if student_df.empty:
-        st.warning("No records for the selected student.")
-        st.stop()
+    # Grade filter (multi)
+    grades = sorted(progress_df["Grade"].astype(str).unique())
+    selected_grades = st.multiselect("Filter by Grade", options=grades, default=grades)
 
-    student_df = student_df.sort_values(["Year_int", "SemKey", "Course"])
+    st.caption("Tip: Use the main page to upload or reload the progress report at any time; this page updates automatically.")
 
-    # Header cards
-    s_name = student_df["NAME"].iloc[0]
-    c1, c2, c3 = st.columns([2, 1, 1])
-    c1.metric("Student", s_name)
-    c2.metric("ID", sel_id)
-    year_span = f"{student_df['Year_int'].min()} – {student_df['Year_int'].max()}" if pd.notna(student_df['Year_int']).any() else "N/A"
-    c3.metric("Years Covered", year_span)
+# Apply filters
+filtered = progress_df.copy()
 
-    # Group display by Year then Semester
-    st.markdown("### Timeline")
-    years = student_df["Year_int"].dropna().unique().tolist()
-    years = sorted([int(y) for y in years])
+# Student filter
+if selected_student_option != "— All Students —":
+    selected_id = selected_student_option.split(" - ")[0]
+    filtered = filtered[filtered["ID"].astype(str) == selected_id]
 
-    if not years:
-        # Fallback if Year was not parseable
-        block = student_df[["Year", "Semester", "Course", "Grade"]].rename(
-            columns={"Year": "Year (raw)"}
-        )
-        st.dataframe(block, use_container_width=True, height=500)
+# Year filter
+if selected_years:
+    filtered = filtered[filtered["Year"].isin(selected_years)]
+
+# Course search
+if course_search.strip():
+    q = course_search.strip().lower()
+    filtered = filtered[filtered["Course"].str.lower().str.contains(q)]
+
+# Grade filter
+if selected_grades:
+    filtered = filtered[filtered["Grade"].astype(str).isin(selected_grades)]
+
+# Layout: top KPIs (only for a single student selection)
+if selected_student_option != "— All Students —" and not filtered.empty:
+    sid = filtered["ID"].iloc[0]
+    sname = filtered["NAME"].iloc[0]
+    st.subheader(f"Progress for: {sname} (ID: {sid})")
+
+    # Simple KPIs
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Records", len(filtered))
+    col2.metric("Unique Courses", filtered["Course"].nunique())
+    col3.metric("Years Covered", filtered["Year"].nunique())
+
+# Display table
+st.markdown("### Progress Table")
+# Reorder columns for readability
+display_cols = ["ID", "NAME", "Year", "Semester", "Course", "Grade"]
+st.dataframe(
+    filtered[display_cols],
+    use_container_width=True,
+    height=500
+)
+
+# Grouped view toggle (by Semester-Year and Course list)
+with st.expander("Grouped View (Semester-Year → Courses)"):
+    if filtered.empty:
+        st.info("No data for the selected filters.")
     else:
-        for y in years:
-            year_block = student_df[student_df["Year_int"] == y]
-            st.markdown(f"#### {y}")
-            sems = (
-                year_block[["Semester", "SemKey"]]
-                .drop_duplicates()
-                .sort_values("SemKey")["Semester"]
-                .tolist()
-            )
-            for sem in sems:
-                sem_block = year_block[year_block["Semester"] == sem]
-                st.markdown(f"**{sem}**")
-                display = sem_block[["Course", "Grade"]].reset_index(drop=True)
-                st.dataframe(display, use_container_width=True)
-
-    # Full flat view (optional)
-    with st.expander("Show full table"):
-        flat = student_df[["Year_int", "Semester", "Course", "Grade"]].rename(
-            columns={"Year_int": "Year"}
+        grouped = (
+            filtered
+            .assign(Semester_Year=filtered["Semester"] + "-" + filtered["Year"])
+            .groupby(["ID", "NAME", "Semester_Year"], as_index=False)
+            .agg({
+                "Course": lambda x: ", ".join(sorted(x.unique())),
+                "Grade": lambda x: ", ".join(x.astype(str))
+            })
+            .sort_values(by=["NAME", "Semester_Year"])
         )
-        st.dataframe(flat, use_container_width=True, height=400)
+        st.dataframe(grouped, use_container_width=True)
 
-    # Download button
-    export_df = student_df.rename(columns={"Year_int": "Year"})  # restore Year header
-    excel_bytes = _export_student_history_to_excel(s_name, sel_id, export_df)
-    st.download_button(
-        "Download Course History (Excel)",
-        data=excel_bytes,
-        file_name=f"{s_name.replace(' ', '_')}_Course_History.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+# Downloads
+st.markdown("### Download")
+c1, c2 = st.columns(2)
+with c1:
+    if selected_student_option != "— All Students —" and not filtered.empty:
+        sid = filtered["ID"].iloc[0]
+        sname = filtered["NAME"].iloc[0]
+        # Student-only Excel
+        student_xlsx = _download_student_progress_excel(filtered, sname, str(sid))
+        st.download_button(
+            "Download Selected Student (Excel)",
+            data=student_xlsx.getvalue(),
+            file_name=f"{sname.replace(' ','_')}_Progress.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    else:
+        st.caption("Select an individual student to enable the single-student Excel export.")
 
-if __name__ == "__main__":
-    main()
+with c2:
+    if not filtered.empty:
+        all_xlsx = _download_all_progress_excel(filtered)
+        st.download_button(
+            "Download Filtered View (All Students, Excel)",
+            data=all_xlsx.getvalue(),
+            file_name="Filtered_Student_Progress.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    else:
+        st.caption("Adjust filters to enable the multi-student Excel export.")
