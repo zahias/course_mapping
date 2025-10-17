@@ -1,101 +1,127 @@
-# data_processing.py
-
 import pandas as pd
 import streamlit as st
+from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
 
-def read_progress_report(file_obj) -> pd.DataFrame | None:
+def read_progress_report(filepath):
     """
-    Accepts Excel/CSV in either:
-      - long form: ['ID','NAME','Course','Grade','Year','Semester']
-      - wide form: ID/NAME plus COURSE* columns holding 'CODE/SEM-YYYY/GRADE'
-    Returns long form or None.
+    Reads an uploaded progress report (Excel or CSV), in either:
+      - “long” format with columns [ID or STUDENT ID, NAME, Course, Grade, Year, Semester]
+      - “wide” format with columns ID/NAME plus COURSE_* or COURSE * columns
+    Returns a long‐format DataFrame with exactly ['ID','NAME','Course','Grade','Year','Semester'] or None on error.
     """
     try:
-        name = file_obj.name.lower()
-        if name.endswith((".xlsx", ".xls")):
-            xls = pd.ExcelFile(file_obj)
-            # Prefer sheet named 'Progress Report'
-            if "Progress Report" in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name="Progress Report")
+        # Excel files
+        if filepath.lower().endswith(('.xlsx', '.xls')):
+            xls = pd.ExcelFile(filepath)
+            # If there is a sheet literally named "Progress Report", read that long‐form
+            if 'Progress Report' in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name='Progress Report')
                 required = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
                 missing = required - set(df.columns)
                 if missing:
                     st.error(f"Missing columns: {missing}")
                     return None
                 return df[list(required)]
-            # else use first sheet and transform
-            raw = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
-            return transform_wide_format(raw)
-        elif name.endswith(".csv"):
-            df = pd.read_csv(file_obj)
-            required = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
-            if required.issubset(df.columns):
-                return df[list(required)]
-            return transform_wide_format(df)
+            # Otherwise, pull the first sheet and attempt to transform wide → long
+            df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+            transformed = transform_wide_format(df)
+            if transformed is None:
+                st.error("Failed to read the uploaded progress report file.")
+            return transformed
+
+        # CSV files
+        elif filepath.lower().endswith('.csv'):
+            df = pd.read_csv(filepath)
+            if {'Course','Grade','Year','Semester'}.issubset(df.columns):
+                # assume long form
+                return df[['ID','NAME','Course','Grade','Year','Semester']]
+            # otherwise try wide form
+            transformed = transform_wide_format(df)
+            if transformed is None:
+                st.error("Failed to read the uploaded progress report file.")
+            return transformed
+
         else:
-            st.error("Unsupported file. Please upload Excel or CSV.")
+            st.error("Unsupported file format. Upload an Excel or CSV.")
             return None
+
     except Exception as e:
-        st.error(f"Error reading progress report: {e}")
+        st.error(f"Error reading file: {e}")
         return None
+
 
 def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
     """
-    Wide → long. Detect ID ('ID' or 'STUDENT ID') and COURSE* columns.
-    Each COURSE cell must be 'CODE/SEM-YYYY/GRADE'.
+    Converts a wide‐format progress sheet into long form.
+    Detects an ID column ('ID' or 'STUDENT ID') plus any 'COURSE…' columns.
+    Expects each cell as 'COURSECODE/SEMESTER-YEAR/GRADE'.
+    Returns a DataFrame with columns ['ID','NAME','Course','Grade','Year','Semester'].
     """
-    # ID column
-    id_col = None
-    if "ID" in df.columns:
-        id_col = "ID"
-    elif "STUDENT ID" in df.columns:
-        id_col = "STUDENT ID"
+    # 1) Find the student‐ID column
+    if 'ID' in df.columns:
+        id_col = 'ID'
+    elif 'STUDENT ID' in df.columns:
+        id_col = 'STUDENT ID'
     else:
-        st.error("Wide format missing 'ID' or 'STUDENT ID'.")
+        st.error("Wide format file missing an 'ID' or 'STUDENT ID' column.")
         return None
 
-    # NAME fix
-    if "NAME" not in df.columns and "Name" in df.columns:
-        df = df.rename(columns={"Name": "NAME"})
-    if "NAME" not in df.columns:
-        st.error("Wide format missing 'NAME' column.")
+    # 2) Ensure we have a NAME column
+    if 'NAME' not in df.columns and 'Name' in df.columns:
+        df = df.rename(columns={'Name': 'NAME'})
+    if 'NAME' not in df.columns:
+        st.error("Wide format file missing a 'NAME' column.")
         return None
 
-    # course columns
-    course_cols = [c for c in df.columns if str(c).upper().startswith("COURSE")]
+    # 3) Detect all COURSE columns
+    course_cols = [c for c in df.columns if c.upper().startswith('COURSE')]
     if not course_cols:
-        st.error("Wide format missing COURSE* columns.")
+        st.error("Wide format file missing any 'COURSE…' columns.")
         return None
 
+    # 4) Melt into long form
     id_vars = [c for c in df.columns if c not in course_cols]
-    melted = df.melt(id_vars=id_vars, value_vars=course_cols, var_name="Course_Col", value_name="CourseData")
-    melted = melted[melted["CourseData"].notna() & (melted["CourseData"].astype(str).str.strip() != "")]
+    df_melt = df.melt(
+        id_vars=id_vars,
+        value_vars=course_cols,
+        var_name='Course_Column',
+        value_name='CourseData'
+    )
 
-    parts = melted["CourseData"].astype(str).str.split("/", expand=True)
+    # 5) Drop empty entries
+    df_melt = df_melt[df_melt['CourseData'].notna() & (df_melt['CourseData'].str.strip() != '')]
+
+    # 6) Split COURSECODE/SEMESTER-YEAR/GRADE
+    parts = df_melt['CourseData'].str.split('/', expand=True)
     if parts.shape[1] < 3:
         st.error("Parsing error: expected 'CODE/SEM-YYYY/GRADE'.")
         return None
 
-    melted["Course"] = parts[0].str.strip().str.upper()
-    melted["SemYear"] = parts[1].str.strip()
-    melted["Grade"] = parts[2].str.strip().str.upper()
+    df_melt['Course'] = parts[0].str.strip().str.upper()
+    df_melt['RawSemYear'] = parts[1].str.strip()
+    df_melt['Grade'] = parts[2].str.strip().str.upper()
 
-    sy = melted["SemYear"].str.split("-", expand=True)
-    if sy.shape[1] < 2:
-        st.error("Expected 'SEM-YYYY' like 'Fall-2024'.")
+    # 7) Split Semester and Year
+    sem_parts = df_melt['RawSemYear'].str.split('-', expand=True)
+    if sem_parts.shape[1] < 2:
+        st.error("Expected Semester-Year in format 'FALL-2016'.")
         return None
 
-    melted["Semester"] = sy[0].str.strip().str.title()
-    melted["Year"] = sy[1].str.strip()
+    df_melt['Semester'] = sem_parts[0].str.strip().str.title()
+    df_melt['Year'] = sem_parts[1].str.strip()
 
-    if id_col != "ID":
-        melted = melted.rename(columns={id_col: "ID"})
+    # 8) Rename ID column to 'ID'
+    if id_col != 'ID':
+        df_melt = df_melt.rename(columns={id_col: 'ID'})
 
-    final_cols = ["ID", "NAME", "Course", "Grade", "Year", "Semester"]
-    return melted[final_cols].drop_duplicates()
+    # 9) Collect only needed columns
+    final_cols = ['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']
+    missing = [c for c in final_cols if c not in df_melt.columns]
+    if missing:
+        st.error(f"Missing columns after transformation: {missing}")
+        return None
 
-# (Your app already computes wide summaries elsewhere;
-#  no change is needed for credit calculations here.)
+    return df_melt[final_cols].drop_duplicates()
 
 
 def read_equivalent_courses(equivalent_courses_df):
