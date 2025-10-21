@@ -24,6 +24,10 @@ st.write(
     "Semesters must follow `FALL-YYYY`, `SPRING-YYYY`, or `SUMMER-YYYY` exactly."
 )
 
+# === helper: version bump for cache invalidation elsewhere (non-breaking) ===
+def _bump_version(key_name: str):
+    st.session_state[key_name] = int(st.session_state.get(key_name, 0)) + 1
+
 # === 0) Major Selection ===
 if "selected_major" not in st.session_state or st.session_state["selected_major"] is None:
     st.warning("First, select a Major on the Upload Data page.")
@@ -105,6 +109,8 @@ with st.expander("Course Configuration Options", expanded=True):
                     local_csv = os.path.join(local_folder, "courses_config.csv")
                     download_file(service, file_id, local_csv)
                     st.success("Reloaded courses_config.csv from Google Drive.")
+                    # >>> non-breaking: tell other pages cache may be stale
+                    _bump_version(f"{major}_courses_config_version")
                 else:
                     st.error("No courses_config.csv found on Google Drive for this Major.")
             except Exception as e:
@@ -127,6 +133,10 @@ with st.expander("Course Configuration Options", expanded=True):
             else:
                 upload_file(service, local_csv, drive_name)
             st.success("Courses configuration synced to Google Drive.")
+
+            # >>> non-breaking: tell other pages cache may be stale
+            _bump_version(f"{major}_courses_config_version")
+
         except Exception as e:
             st.error(f"Error reading uploaded courses CSV: {e}")
     elif os.path.exists(os.path.join(local_folder, "courses_config.csv")):
@@ -199,6 +209,8 @@ with st.expander("Equivalent Courses", expanded=False):
             local_eq = os.path.join(local_folder, "equivalent_courses.csv")
             download_file(service, file_id, local_eq)
             st.success("Equivalent courses file loaded from Google Drive.")
+            # >>> non-breaking: signal possible downstream cache invalidation
+            _bump_version(f"{major}_equivalents_version")
         else:
             # If not found, create an empty CSV and push it
             local_eq = os.path.join(local_folder, "equivalent_courses.csv")
@@ -206,6 +218,8 @@ with st.expander("Equivalent Courses", expanded=False):
             empty_df.to_csv(local_eq, index=False)
             upload_file(service, local_eq, drive_name)
             st.info("No equivalent_courses.csv found on Drive; an empty template was created and uploaded.")
+            # >>> also bump on creation
+            _bump_version(f"{major}_equivalents_version")
     except Exception as e:
         st.error(f"Error processing equivalent courses file: {e}")
 
@@ -222,3 +236,5 @@ with st.expander("Assignment Types Configuration", expanded=False):
         new_types = [x.strip() for x in assignment_types_str.split(",") if x.strip()]
         st.session_state[key] = new_types
         st.success("Assignment types updated for this Major.")
+        # >>> non-breaking: let dependent cached views refresh if they key on this
+        _bump_version(f"{major}_assignment_types_version")
