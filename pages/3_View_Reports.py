@@ -40,9 +40,9 @@ if raw_key not in st.session_state:
 df = st.session_state[raw_key]
 
 # === 2) Retrieve this Major’s rules from session_state ===
-target_key          = f"{major}_target_courses"
-intensive_key       = f"{major}_intensive_courses"
-target_rules_key    = f"{major}_target_course_rules"
+target_key       = f"{major}_target_courses"
+intensive_key    = f"{major}_intensive_courses"
+target_rules_key = f"{major}_target_course_rules"
 intensive_rules_key = f"{major}_intensive_course_rules"
 
 if (
@@ -72,17 +72,10 @@ try:
 except Exception:
     pass
 
-file_assignments = load_assignments(
+per_student_assignments = load_assignments(
     db_path="assignments.db",
     csv_path=csv_path_for_major
 )
-
-# Merge in-memory assignments (from Customize Courses) over file-based (non-breaking)
-mem_key = f"{major}_per_student_assignments"
-if mem_key in st.session_state and isinstance(st.session_state[mem_key], dict):
-    per_student_assignments = {**file_assignments, **st.session_state[mem_key]}
-else:
-    per_student_assignments = file_assignments
 
 # === 4) Load equivalent courses for this Major ===
 eq_path_for_major = os.path.join(local_folder, "equivalent_courses.csv")
@@ -92,10 +85,7 @@ if os.path.exists(eq_path_for_major):
 else:
     equivalent_courses_mapping = {}
 
-# === NEW: get per-Major assignment types override (if any) ===
-allowed_types_override = st.session_state.get(f"{major}_allowed_assignment_types", None)
-
-# === 5) Process the progress report using explicitly passed rules (NO cache) ===
+# === 5) Process the progress report using explicitly passed rules ===
 full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
     df,
     target_courses,
@@ -103,8 +93,7 @@ full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
     target_rules,
     intensive_rules,
     per_student_assignments,
-    equivalent_courses_mapping,
-    allowed_assignment_types=allowed_types_override,  # <-- pass override from Customize Courses
+    equivalent_courses_mapping
 )
 
 # === 6) Calculate credits for both Required & Intensive ===
