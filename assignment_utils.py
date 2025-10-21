@@ -12,18 +12,6 @@ from google_drive_utils import (
 )
 from googleapiclient.discovery import build
 
-def _active_assignment_types():
-    """
-    Resolve the current assignment type list with per-Major override if present.
-    """
-    major = st.session_state.get("selected_major")
-    if major:
-        override = st.session_state.get(f"{major}_allowed_assignment_types")
-        if isinstance(override, (list, tuple)) and len(override) > 0:
-            return [str(x) for x in override if str(x).strip()]
-    # Fallback to global/default
-    return [str(x) for x in get_allowed_assignment_types()]
-
 def init_db(db_name: str = "assignments.db"):
     """
     Initialize (or connect to) the SQLite database for assignments.
@@ -125,20 +113,17 @@ def validate_assignments(edited_df: pd.DataFrame, per_student_assignments: dict)
       - errors: a list of human-readable error messages
       - updated per_student_assignments dict
     """
-    allowed_assignment_types = _active_assignment_types()
+    allowed_assignment_types = get_allowed_assignment_types()
     errors = []
     new_assignments = {}
-
-    # Make sure we don't crash if a newly-added type isn't present as a column yet
-    present_types = [t for t in allowed_assignment_types if t in edited_df.columns]
 
     for _, row in edited_df.iterrows():
         student_id = str(row["ID"])
         course = row["Course"]
         if student_id not in new_assignments:
             new_assignments[student_id] = {}
-        for assign_type in present_types:
-            if bool(row.get(assign_type, False)):
+        for assign_type in allowed_assignment_types:
+            if row.get(assign_type, False):
                 if assign_type in new_assignments[student_id]:
                     errors.append(f"Student ID {student_id} has multiple {assign_type} courses selected.")
                 else:
