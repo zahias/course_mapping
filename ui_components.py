@@ -1,135 +1,56 @@
-# ui_components.py
-# Helpers for displaying dataframes and interactive assignment editing
-
-from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from typing import List, Optional
 from config import get_allowed_assignment_types
 
-# -----------------------------
-# Display helpers
-# -----------------------------
-
-def display_dataframes(
-    styled_required: pd.io.formats.style.Styler,
-    styled_intensive: pd.io.formats.style.Styler,
-    extra_courses_df: pd.DataFrame,
-    raw_df: pd.DataFrame
-) -> None:
+def _active_assignment_types():
     """
-    Renders the Required, Intensive styled tables and the raw 'extras' table in tabs.
+    Resolve the current assignment type list with per-Major override if present.
     """
-    tab1, tab2, tab3 = st.tabs(["Required", "Intensive", "Extras (raw)"])
+    major = st.session_state.get("selected_major")
+    if major:
+        override = st.session_state.get(f"{major}_allowed_assignment_types")
+        if isinstance(override, (list, tuple)) and len(override) > 0:
+            return [str(x) for x in override if str(x).strip()]
+    # Fallback to global/default
+    return [str(x) for x in get_allowed_assignment_types()]
 
+def display_dataframes(styled_df, intensive_styled_df, extra_courses_df, raw_df):
+    tab1, tab2, tab3 = st.tabs(["Required Courses", "Intensive Courses", "Extra Courses"])
     with tab1:
-        st.dataframe(styled_required, use_container_width=True, height=450)
-
+        st.subheader("Required Courses Progress Report")
+        st.dataframe(styled_df, use_container_width=True)
     with tab2:
-        st.dataframe(styled_intensive, use_container_width=True, height=350)
-
+        st.subheader("Intensive Courses Progress Report")
+        st.dataframe(intensive_styled_df, use_container_width=True)
     with tab3:
-        if extra_courses_df is not None and not extra_courses_df.empty:
-            st.dataframe(
-                extra_courses_df.sort_values(["NAME", "ID", "Course"]),
-                use_container_width=True,
-                height=400
-            )
-        else:
-            st.info("No extra courses to display.")
+        st.subheader("Extra Courses Detailed View")
+        st.dataframe(extra_courses_df, use_container_width=True)
 
-
-# -----------------------------
-# Assign Courses editor
-# -----------------------------
-
-def add_assignment_selection(
-    filtered_extras: pd.DataFrame,
-    allowed_assignment_types: Optional[List[str]] = None,
-    *,
-    key: str = "assign_editor"
-) -> pd.DataFrame:
+def add_assignment_selection(extra_courses_df: pd.DataFrame):
     """
-    Returns an editable DataFrame for assigning 'extra' courses to requirement slots
-    (assignment types). The available assignment types are read dynamically:
-
-      - If `allowed_assignment_types` is provided, use it.
-      - Else, call `config.get_allowed_assignment_types()` at *render time*.
-
-    Expected input columns in `filtered_extras`:
-        ["ID", "NAME", "Course", "Grade", "Year", "Semester"]   (extra rows are fine with more cols)
-
-    Output:
-        A DataFrame with an added/updated column "AssignTo" containing the chosen slot per row.
-
-    Notes:
-      - We do not persist anything here; saving is handled by assignment_utils.save_assignments().
-      - We intentionally do NOT cache the options to ensure Customize Courses changes propagate.
+    Displays an inline-editable table for extra courses assignments using st.data_editor.
+    The available assignment types are resolved dynamically (per-Major) each render.
     """
-    df = filtered_extras.copy()
+    allowed_assignment_types = _active_assignment_types()
 
-    # Normalize required columns presence
-    for col in ["ID", "NAME", "Course"]:
-        if col not in df.columns:
-            df[col] = ""
+    # Ensure boolean columns exist for each assignment type
+    for col in allowed_assignment_types:
+        if col not in extra_courses_df.columns:
+            extra_courses_df[col] = False
 
-    # Pull dynamic types each render
-    opts = allowed_assignment_types
-    if opts is None:
-        opts = get_allowed_assignment_types()
+    # Base columns always shown
+    base_cols = ['ID', 'NAME', 'Course', 'Grade']
+    base_cols = [c for c in base_cols if c in extra_courses_df.columns]
 
-    # Make them strings, keep display as entered by user in Customize Courses
-    opts = [str(x) for x in opts if str(x).strip()]
+    assignment_columns = base_cols + allowed_assignment_types
 
-    # Provide an explicit "no assignment" choice
-    select_options = ["— None —"] + opts
+    # Force Streamlit to rebuild the editor when the set/order of types changes
+    editor_key = "extra_courses_editor_" + "_".join(allowed_assignment_types)
 
-    # Ensure we have the editable "AssignTo" column
-    if "AssignTo" not in df.columns:
-        df["AssignTo"] = "— None —"
-    else:
-        # Coerce any stale values to legal ones
-        df["AssignTo"] = df["AssignTo"].apply(
-            lambda v: v if v in select_options else "— None —"
-        )
-
-    # Show an editor with a dropdown per row
-    # Note: We restrict editing to the AssignTo column only.
-    editable_cols = {
-        "AssignTo": st.column_config.SelectboxColumn(
-            "Assign To (slot)",
-            options=select_options,
-            help="Choose which requirement slot this course should fulfill.",
-            required=False,
-            width="small"
-        )
-    }
-
-    st.caption(
-        f"Active assignment types: {', '.join(opts) if opts else '(none configured)'}"
-    )
-
-    edited = st.data_editor(
-        df[["ID", "NAME", "Course", "Semester", "Year", "Grade", "AssignTo"]]
-        if set(["Semester", "Year", "Grade"]).issubset(df.columns)
-        else df[["ID", "NAME", "Course", "AssignTo"]],
-        column_config=editable_cols,
-        disabled=[c for c in ["ID", "NAME", "Course", "Semester", "Year", "Grade"] if c in df.columns],
-        num_rows="fixed",
+    edited_df = st.data_editor(
+        extra_courses_df[assignment_columns],
+        num_rows="dynamic",
         use_container_width=True,
-        key=key
+        key=editor_key
     )
-
-    # Return full original columns + possibly updated AssignTo
-    out = filtered_extras.copy()
-    out = out.merge(
-        edited[["ID", "Course", "AssignTo"]],
-        on=["ID", "Course"],
-        how="left",
-        suffixes=("", "_ed")
-    )
-    # Prefer edited AssignTo
-    out["AssignTo"] = out["AssignTo_ed"].fillna(out.get("AssignTo", "— None —"))
-    out.drop(columns=[c for c in ["AssignTo_ed"] if c in out.columns], inplace=True)
-
-    return out
+    return edited_df

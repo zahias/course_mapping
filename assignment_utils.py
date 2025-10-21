@@ -1,137 +1,232 @@
-# assignment_utils.py
-# Load/save/validate per-student assignment mappings for flexible slots (S.C.E., F.E.C., etc.)
-
-from __future__ import annotations
+import sqlite3
 import os
+import streamlit as st
 import pandas as pd
-from typing import Dict, Tuple, List
 from config import get_allowed_assignment_types
+from google_drive_utils import (
+    authenticate_google_drive,
+    search_file,
+    update_file,
+    upload_file,
+    delete_file
+)
+from googleapiclient.discovery import build
 
-# -----------------------------
-# Persist & load
-# -----------------------------
-
-def load_assignments(db_path: str = "assignments.db", csv_path: str | None = None) -> Dict[str, Dict[str, str]]:
+def _active_assignment_types():
     """
-    Reads a simple CSV of assignments into:
-        { student_id: { "<AssignmentType>": "<CourseCode>", "_note": "<optional>" }, ... }
-
-    CSV expected columns:
-        ID, AssignmentType, Course [, Note]
-
-    db_path is accepted for backward-compatibility but not used here.
+    Resolve the current assignment type list with per-Major override if present.
     """
-    if not csv_path or not os.path.exists(csv_path):
-        return {}
+    major = st.session_state.get("selected_major")
+    if major:
+        override = st.session_state.get(f"{major}_allowed_assignment_types")
+        if isinstance(override, (list, tuple)) and len(override) > 0:
+            return [str(x) for x in override if str(x).strip()]
+    # Fallback to global/default
+    return [str(x) for x in get_allowed_assignment_types()]
 
-    df = pd.read_csv(csv_path)
-    # Normalize columns
-    for col in ["ID", "AssignmentType", "Course"]:
-        if col not in df.columns:
-            return {}
-
-    out: Dict[str, Dict[str, str]] = {}
-    for _, row in df.iterrows():
-        sid = str(row["ID"])
-        at  = str(row["AssignmentType"]).strip()
-        crs = str(row["Course"]).strip()
-        if not sid or not at or not crs:
-            continue
-        out.setdefault(sid, {})[at] = crs
-
-    if "Note" in df.columns:
-        for _, row in df[df["Note"].notna()].iterrows():
-            sid = str(row["ID"])
-            note = str(row["Note"])
-            if sid:
-                out.setdefault(sid, {})["_note"] = note
-
-    return out
-
-
-def save_assignments(assignments: Dict[str, Dict[str, str]], csv_path: str) -> None:
+def init_db(db_name: str = "assignments.db"):
     """
-    Writes the mapping back to CSV with columns:
-        ID, AssignmentType, Course, Note
+    Initialize (or connect to) the SQLite database for assignments.
     """
-    rows: List[dict] = []
-    for sid, mapping in assignments.items():
-        note = mapping.get("_note", "")
-        for atype, crs in mapping.items():
-            if atype == "_note":
-                continue
-            rows.append({"ID": sid, "AssignmentType": atype, "Course": crs, "Note": note})
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS assignments (
+            student_id TEXT NOT NULL,
+            assignment_type TEXT NOT NULL,
+            course TEXT NOT NULL,
+            PRIMARY KEY (student_id, assignment_type)
+        )
+    ''')
+    conn.commit()
+    return conn
 
-    df = pd.DataFrame(rows)
-    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-    df.to_csv(csv_path, index=False)
+def save_assignment(conn, student_id: str, course_code: str, assignment_type: str):
+    """
+    Insert (or replace) a single assignment row into the SQLite DB.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT OR REPLACE INTO assignments (student_id, assignment_type, course)
+            VALUES (?, ?, ?)
+        ''', (student_id, assignment_type, course_code))
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error saving assignment to DB: {e}")
 
+def delete_assignment(conn, student_id: str, assignment_type: str):
+    """
+    Delete a single assignment from the SQLite DB.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            DELETE FROM assignments WHERE student_id = ? AND assignment_type = ?
+        ''', (student_id, assignment_type))
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error deleting assignment from DB: {e}")
 
-def reset_assignments(csv_path: str) -> None:
-    """Deletes the CSV file if present."""
-    if csv_path and os.path.exists(csv_path):
+def load_assignments(db_path: str = "assignments.db", csv_path: str = "sce_fec_assignments.csv"):
+    """
+    Load per-student assignments, preferring the CSV at `csv_path` if it exists,
+    otherwise falling back to the SQLite database at `db_path`.
+
+    Returns a dict:
+        {
+          "student_id_1": {"S.C.E.": "COURSEX", "F.E.C.": "COURSEY", ...},
+          "student_id_2": {...},
+           ...
+        }
+    """
+    # 1) Try to read from CSV first
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path)
+            per_student = {}
+            for _, row in df.iterrows():
+                sid = str(row["student_id"])
+                atype = row["assignment_type"]
+                course = row["course"]
+                if sid not in per_student:
+                    per_student[sid] = {}
+                per_student[sid][atype] = course
+            return per_student
+        except Exception as e:
+            st.warning(f"Could not read assignments CSV '{csv_path}': {e}")
+
+    # 2) Fallback to SQLite DB
+    conn = init_db(db_path)
+    cursor = conn.cursor()
+    cursor.execute('SELECT student_id, course, assignment_type FROM assignments')
+    rows = cursor.fetchall()
+    conn.close()
+
+    assignments = {}
+    for student_id, course_code, assignment_type in rows:
+        if student_id not in assignments:
+            assignments[student_id] = {}
+        assignments[student_id][assignment_type] = course_code
+    return assignments
+
+def close_db(conn):
+    """
+    Close the SQLite connection.
+    """
+    conn.close()
+
+def validate_assignments(edited_df: pd.DataFrame, per_student_assignments: dict):
+    """
+    Validates the DataFrame returned by st.data_editor (or similar).
+    Ensures no student has more than one course per assignment type.
+
+    Returns:
+      - errors: a list of human-readable error messages
+      - updated per_student_assignments dict
+    """
+    allowed_assignment_types = _active_assignment_types()
+    errors = []
+    new_assignments = {}
+
+    # Make sure we don't crash if a newly-added type isn't present as a column yet
+    present_types = [t for t in allowed_assignment_types if t in edited_df.columns]
+
+    for _, row in edited_df.iterrows():
+        student_id = str(row["ID"])
+        course = row["Course"]
+        if student_id not in new_assignments:
+            new_assignments[student_id] = {}
+        for assign_type in present_types:
+            if bool(row.get(assign_type, False)):
+                if assign_type in new_assignments[student_id]:
+                    errors.append(f"Student ID {student_id} has multiple {assign_type} courses selected.")
+                else:
+                    new_assignments[student_id][assign_type] = course
+
+    # Merge new_assignments into the existing per_student_assignments
+    for student_id, assigns in new_assignments.items():
+        if student_id not in per_student_assignments:
+            per_student_assignments[student_id] = assigns
+        else:
+            per_student_assignments[student_id].update(assigns)
+
+    return errors, per_student_assignments
+
+def save_assignments(
+    assignments: dict,
+    db_path: str = "assignments.db",
+    csv_path: str = "sce_fec_assignments.csv"
+):
+    """
+    Persist `assignments` both to the local SQLite DB and to a CSV for Drive syncing.
+
+    The `assignments` dict should look like:
+      {
+        "2016123456": {"S.C.E.": "CMPS202", "F.E.C.": "ENGL201"},
+        "2017012345": {"S.C.E.": "PBHL201"},
+         ...
+      }
+    """
+    # --- 1) Persist to SQLite DB ---
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    for student_id, assign_map in assignments.items():
+        for assignment_type, course in assign_map.items():
+            cursor.execute('''
+                INSERT OR REPLACE INTO assignments (student_id, assignment_type, course)
+                VALUES (?, ?, ?)
+            ''', (student_id, assignment_type, course))
+    conn.commit()
+    conn.close()
+
+    # --- 2) Persist to CSV for Google Drive syncing ---
+    assignments_list = []
+    for student_id, assign_map in assignments.items():
+        for assignment_type, course in assign_map.items():
+            assignments_list.append({
+                "student_id": student_id,
+                "assignment_type": assignment_type,
+                "course": course
+            })
+    assignments_df = pd.DataFrame(assignments_list)
+    assignments_df.to_csv(csv_path, index=False)
+
+    # --- 3) Sync to Google Drive ---
+    try:
+        creds = authenticate_google_drive()
+        service = build("drive", "v3", credentials=creds)
+        file_id = search_file(service, csv_path)
+        if file_id:
+            update_file(service, file_id, csv_path)
+            st.info("Assignments file updated on Google Drive.")
+        else:
+            upload_file(service, csv_path, csv_path)
+            st.info("Assignments file uploaded to Google Drive.")
+    except Exception as e:
+        st.error(f"Error syncing assignments with Google Drive: {e}")
+
+def reset_assignments(csv_path: str = "sce_fec_assignments.csv", db_path: str = "assignments.db"):
+    """
+    Completely clears all assignments for this major:
+      - Deletes the local CSV (if it exists)
+      - Deletes the CSV on Google Drive (if present)
+      - Deletes the local SQLite DB file (if present)
+    """
+    # 1) Remove local CSV
+    if os.path.exists(csv_path):
         os.remove(csv_path)
 
-# -----------------------------
-# Validation
-# -----------------------------
+    # 2) Remove from Google Drive
+    try:
+        creds = authenticate_google_drive()
+        service = build("drive", "v3", credentials=creds)
+        file_id = search_file(service, csv_path)
+        if file_id:
+            delete_file(service, file_id)
+    except Exception as e:
+        st.error(f"Error resetting assignments on Google Drive: {e}")
 
-def validate_assignments(
-    edited_extra_courses_df: pd.DataFrame,
-    existing_assignments: Dict[str, Dict[str, str]]
-) -> Tuple[List[str], Dict[str, Dict[str, str]]]:
-    """
-    Returns (errors, updated_assignments_mapping).
-
-    Inputs:
-      - edited_extra_courses_df: output of ui_components.add_assignment_selection(),
-        must have columns ["ID","NAME","Course","AssignTo"] (others tolerated).
-      - existing_assignments: current mapping {sid: {atype: course, ...}, ...}
-
-    Rules:
-      - AssignTo must be one of the *current* allowed assignment types.
-      - For each student, a given AssignTo slot can be used at most once.
-    """
-    errors: List[str] = []
-    updated: Dict[str, Dict[str, str]] = {sid: mapping.copy() for sid, mapping in existing_assignments.items()}
-
-    # Pull dynamic list NOW (reflects Customize Courses override)
-    allowed_types = [str(x) for x in get_allowed_assignment_types()]
-
-    # Build a usage map to prevent duplicate use of the same slot per student
-    used_by_student: Dict[str, set] = {}
-    for sid, mapping in updated.items():
-        used_by_student[sid] = {
-            k for k in mapping.keys() if k != "_note"
-        }
-
-    # Walk the edited rows
-    if "AssignTo" not in edited_extra_courses_df.columns:
-        return errors, updated
-
-    for _, row in edited_extra_courses_df.iterrows():
-        sid = str(row.get("ID", "")).strip()
-        course = str(row.get("Course", "")).strip()
-        atype = str(row.get("AssignTo", "— None —")).strip()
-
-        if not sid or not course:
-            continue
-
-        if atype in ("", "— None —"):
-            # No assignment chosen, skip (don’t remove existing mappings here)
-            continue
-
-        if atype not in allowed_types:
-            errors.append(f"Invalid assignment type '{atype}' for student {sid} / course {course}.")
-            continue
-
-        used = used_by_student.setdefault(sid, set())
-        if atype in used:
-            errors.append(f"Student {sid}: slot '{atype}' already used.")
-            continue
-
-        # OK → record
-        updated.setdefault(sid, {})[atype] = course
-        used.add(atype)
-
-    return errors, updated
+    # 3) Remove local DB
+    if os.path.exists(db_path):
+        os.remove(db_path)
