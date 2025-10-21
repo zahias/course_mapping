@@ -19,46 +19,6 @@ from config import (
     cell_color
 )
 
-# -----------------------------
-# Helpers (non-breaking)
-# -----------------------------
-def _bump_version(key_name: str):
-    """Tiny helper: increment a version flag to invalidate caches elsewhere."""
-    st.session_state[key_name] = int(st.session_state.get(key_name, 0)) + 1
-
-
-@st.cache_data(show_spinner=False)
-def _compute_processed(
-    df: pd.DataFrame,
-    target_courses: dict,
-    intensive_courses: dict,
-    target_rules: dict,
-    intensive_rules: dict,
-    per_student_assignments: dict,
-    equivalent_courses_mapping: dict,
-    # cache keys:
-    courses_cfg_ver: int,
-    equivalents_ver: int,
-    assignment_types_ver: int,
-    assignments_ver: int,
-):
-    """
-    Cached wrapper around process_progress_report.
-    The four integers (versions) ensure recompute when configs/assignments change.
-    """
-    return process_progress_report(
-        df,
-        target_courses,
-        intensive_courses,
-        target_rules,
-        intensive_rules,
-        per_student_assignments,
-        equivalent_courses_mapping
-    )
-
-# -----------------------------
-# Page
-# -----------------------------
 st.title("View Reports")
 st.markdown("---")
 
@@ -99,15 +59,7 @@ intensive_courses = st.session_state[intensive_key]
 target_rules      = st.session_state[target_rules_key]
 intensive_rules   = st.session_state[intensive_rules_key]
 
-# -----------------------------
-# Versions for cache invalidation
-# -----------------------------
-courses_cfg_ver      = int(st.session_state.get(f"{major}_courses_config_version", 0))
-equivalents_ver      = int(st.session_state.get(f"{major}_equivalents_version", 0))
-assignment_types_ver = int(st.session_state.get(f"{major}_assignment_types_version", 0))
-assignments_ver      = int(st.session_state.get(f"{major}_assignments_version", 0))
-
-# === 3) Sync & load assignments from Google Drive for this Major (as before) ===
+# === 3) Sync & load assignments from Google Drive for this Major ===
 csv_path_for_major = os.path.join(local_folder, "sce_fec_assignments.csv")
 try:
     creds = authenticate_google_drive()
@@ -118,7 +70,6 @@ try:
         download_file(service, fid, csv_path_for_major)
         st.info("Loaded assignments from Google Drive.")
 except Exception:
-    # Keep going even if Drive not available
     pass
 
 file_assignments = load_assignments(
@@ -141,19 +92,19 @@ if os.path.exists(eq_path_for_major):
 else:
     equivalent_courses_mapping = {}
 
-# === 5) Process the progress report using explicitly passed rules (now cached) ===
-full_req_df, intensive_req_df, extra_courses_df, _ = _compute_processed(
-    df=df,
-    target_courses=target_courses,
-    intensive_courses=intensive_courses,
-    target_rules=target_rules,
-    intensive_rules=intensive_rules,
-    per_student_assignments=per_student_assignments,
-    equivalent_courses_mapping=equivalent_courses_mapping,
-    courses_cfg_ver=courses_cfg_ver,
-    equivalents_ver=equivalents_ver,
-    assignment_types_ver=assignment_types_ver,
-    assignments_ver=assignments_ver,
+# === NEW: get per-Major assignment types override (if any) ===
+allowed_types_override = st.session_state.get(f"{major}_allowed_assignment_types", None)
+
+# === 5) Process the progress report using explicitly passed rules (NO cache) ===
+full_req_df, intensive_req_df, extra_courses_df, _ = process_progress_report(
+    df,
+    target_courses,
+    intensive_courses,
+    target_rules,
+    intensive_rules,
+    per_student_assignments,
+    equivalent_courses_mapping,
+    allowed_assignment_types=allowed_types_override,  # <-- pass override from Customize Courses
 )
 
 # === 6) Calculate credits for both Required & Intensive ===
@@ -275,8 +226,6 @@ with col3:
 
 if reset_btn:
     reset_assignments(csv_path=csv_path_for_major)
-    # bump so cached views elsewhere refresh
-    _bump_version(f"{major}_assignments_version")
     st.success("All assignments have been reset for this Major.")
     st.rerun()
 
@@ -287,8 +236,6 @@ if errors:
         st.write(f"- {err}")
 elif save_btn:
     save_assignments(updated_assignments, csv_path=csv_path_for_major)
-    # bump so cached views elsewhere refresh
-    _bump_version(f"{major}_assignments_version")
     st.success("Assignments saved for this Major.")
     st.rerun()
 
