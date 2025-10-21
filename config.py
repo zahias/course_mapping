@@ -11,10 +11,27 @@ GRADE_ORDER = [
 
 def get_allowed_assignment_types():
     """
-    Returns the list of assignment types (defaults to S.C.E and F.E.C, 
-    but can be overridden in session state).
+    Returns the list of assignment types.
+
+    Priority:
+      1) Per-Major override saved by Customize Courses:
+         st.session_state[f"{selected_major}_allowed_assignment_types"]
+      2) Global list (legacy support): st.session_state["allowed_assignment_types"]
+      3) Default: ["S.C.E", "F.E.C"]
     """
-    return st.session_state.get("allowed_assignment_types", ["S.C.E", "F.E.C"])
+    major = st.session_state.get("selected_major")
+    if major:
+        per_major = st.session_state.get(f"{major}_allowed_assignment_types")
+        if isinstance(per_major, (list, tuple)) and len(per_major) > 0:
+            return [str(x) for x in per_major if str(x).strip()]
+
+    # Fallback to any global setting (if you ever set it elsewhere)
+    global_list = st.session_state.get("allowed_assignment_types")
+    if isinstance(global_list, (list, tuple)) and len(global_list) > 0:
+        return [str(x) for x in global_list if str(x).strip()]
+
+    # Default
+    return ["S.C.E", "F.E.C"]
 
 def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
     """
