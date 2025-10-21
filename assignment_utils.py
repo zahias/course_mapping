@@ -116,42 +116,64 @@ def close_db(conn):
     """
     conn.close()
 
-def validate_assignments(edited_df: pd.DataFrame, per_student_assignments: dict):
+def validate_assignments(edited_df: pd.DataFrame, existing_assignments: dict):
     """
-    Validates the DataFrame returned by st.data_editor (or similar).
-    Ensures no student has more than one course per assignment type.
+    Validates and produces an UPDATED assignments mapping that supports:
+      - adding new assignments (checked boxes)
+      - removing assignments (unchecked boxes)
 
     Returns:
-      - errors: a list of human-readable error messages
-      - updated per_student_assignments dict
+      - errors: list[str]
+      - updated_assignments: dict
     """
     allowed_assignment_types = _active_assignment_types()
     errors = []
-    new_assignments = {}
 
-    # Make sure we don't crash if a newly-added type isn't present as a column yet
+    # Only consider types that exist as columns (freshly changed lists won't crash)
     present_types = [t for t in allowed_assignment_types if t in edited_df.columns]
 
+    # Build the *selected* map from the edited grid
+    selected: dict[str, dict[str, str]] = {}
     for _, row in edited_df.iterrows():
-        student_id = str(row["ID"])
-        course = row["Course"]
-        if student_id not in new_assignments:
-            new_assignments[student_id] = {}
-        for assign_type in present_types:
-            if bool(row.get(assign_type, False)):
-                if assign_type in new_assignments[student_id]:
-                    errors.append(f"Student ID {student_id} has multiple {assign_type} courses selected.")
+        sid = str(row.get("ID", "")).strip()
+        crs = str(row.get("Course", "")).strip()
+        if not sid or not crs:
+            continue
+        for at in present_types:
+            if bool(row.get(at, False)):
+                # Each slot can only hold one course per student
+                if sid not in selected:
+                    selected[sid] = {}
+                if at in selected[sid] and selected[sid][at] != crs:
+                    errors.append(f"Student {sid}: slot '{at}' already chosen for {selected[sid][at]} (cannot also choose {crs}).")
                 else:
-                    new_assignments[student_id][assign_type] = course
+                    selected.setdefault(sid, {})[at] = crs
 
-    # Merge new_assignments into the existing per_student_assignments
-    for student_id, assigns in new_assignments.items():
-        if student_id not in per_student_assignments:
-            per_student_assignments[student_id] = assigns
-        else:
-            per_student_assignments[student_id].update(assigns)
+    # Start from a copy of current assignments
+    updated = {sid: mapping.copy() for sid, mapping in existing_assignments.items()}
 
-    return errors, per_student_assignments
+    # 1) Remove unselected slots (support unassign)
+    for sid, mapping in list(updated.items()):
+        for at in list(mapping.keys()):
+            if at == "_note":
+                continue
+            # If this atype isn't selected now, remove it
+            if sid not in selected or at not in selected[sid]:
+                del updated[sid][at]
+        # Clean up empty dicts except note
+        if not any(k != "_note" for k in updated[sid].keys()):
+            # keep the note if present
+            if "_note" in updated[sid] and updated[sid]["_note"]:
+                updated[sid] = {"_note": updated[sid]["_note"]}
+            else:
+                del updated[sid]
+
+    # 2) Add/overwrite selected slots
+    for sid, slots in selected.items():
+        for at, crs in slots.items():
+            updated.setdefault(sid, {})[at] = crs
+
+    return errors, updated
 
 def save_assignments(
     assignments: dict,
@@ -171,8 +193,12 @@ def save_assignments(
     # --- 1) Persist to SQLite DB ---
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    # Clear table to exactly mirror the in-memory mapping
+    cursor.execute('DELETE FROM assignments')
     for student_id, assign_map in assignments.items():
         for assignment_type, course in assign_map.items():
+            if assignment_type == "_note":
+                continue
             cursor.execute('''
                 INSERT OR REPLACE INTO assignments (student_id, assignment_type, course)
                 VALUES (?, ?, ?)
@@ -181,16 +207,17 @@ def save_assignments(
     conn.close()
 
     # --- 2) Persist to CSV for Google Drive syncing ---
-    assignments_list = []
+    rows = []
     for student_id, assign_map in assignments.items():
         for assignment_type, course in assign_map.items():
-            assignments_list.append({
+            if assignment_type == "_note":
+                continue
+            rows.append({
                 "student_id": student_id,
                 "assignment_type": assignment_type,
                 "course": course
             })
-    assignments_df = pd.DataFrame(assignments_list)
-    assignments_df.to_csv(csv_path, index=False)
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
 
     # --- 3) Sync to Google Drive ---
     try:

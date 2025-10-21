@@ -199,14 +199,49 @@ st.markdown(
 st.subheader("Assign Courses")
 
 # Show which assignment types are currently active for this Major
-_active = _active_assignment_types_for_major(major)
-st.caption(f"Active assignment types for **{major}**: {', '.join(_active) if _active else '(none)'}")
+active_types = _active_assignment_types_for_major(major)
+st.caption(f"Active assignment types for **{major}**: {', '.join(active_types) if active_types else '(none)'}")
 
+# Build a UI DataFrame that *includes* already-assigned rows and pre-checks them,
+# so selections don't disappear and can be un-checked/changed.
+ui_extras = extra_courses_df.copy()
+
+# Gather assigned (student_id, course) pairs
+assigned_pairs = set()
+for sid, mapping in per_student_assignments.items():
+    for atype, crs in mapping.items():
+        if atype == "_note":
+            continue
+        assigned_pairs.add((str(sid), str(crs)))
+
+if assigned_pairs:
+    # Re-add assigned rows from the raw df (ID, NAME, Course, Grade, Year, Semester)
+    add_back = df[df.apply(lambda r: (str(r.get("ID")), str(r.get("Course"))) in assigned_pairs, axis=1)]
+    cols = [c for c in ["ID", "NAME", "Course", "Grade", "Year", "Semester"] if c in add_back.columns]
+    add_back = add_back[cols].drop_duplicates(subset=["ID", "Course"])
+    if not add_back.empty:
+        ui_extras = pd.concat([ui_extras, add_back], ignore_index=True)
+        ui_extras = ui_extras.drop_duplicates(subset=["ID", "Course"])
+
+# Add boolean columns for each active assignment type and pre-check if already assigned
+for at in active_types:
+    if at not in ui_extras.columns:
+        ui_extras[at] = False
+
+for sid, mapping in per_student_assignments.items():
+    for at, crs in mapping.items():
+        if at == "_note":
+            continue
+        if at in ui_extras.columns:
+            mask = (ui_extras["ID"].astype(str) == str(sid)) & (ui_extras["Course"].astype(str) == str(crs))
+            ui_extras.loc[mask, at] = True
+
+# Search within the Assign Courses table
 search_assign = st.text_input(
     "Search by Student ID, Name, or Course",
     help="Filter extra courses by text"
 )
-filtered_extras = extra_courses_df.copy()
+filtered_extras = ui_extras.copy()
 if search_assign:
     filtered_extras = filtered_extras[
         filtered_extras["ID"].astype(str).str.contains(search_assign, case=False, na=False)
@@ -214,7 +249,7 @@ if search_assign:
         | filtered_extras["Course"].str.contains(search_assign, case=False, na=False)
     ]
 
-# NOTE: ui_components.add_assignment_selection() already reads the active types dynamically
+# Editor (ui_components reads active types dynamically too)
 edited_extra_courses_df = add_assignment_selection(filtered_extras)
 
 col1, col2, col3 = st.columns(3)
@@ -230,6 +265,7 @@ if reset_btn:
     st.success("All assignments have been reset for this Major.")
     st.rerun()
 
+# Validate new selections; now supports *removal* of assignments too.
 errors, updated_assignments = validate_assignments(edited_extra_courses_df, per_student_assignments)
 if errors:
     st.error("Please resolve the following issues before saving:")
