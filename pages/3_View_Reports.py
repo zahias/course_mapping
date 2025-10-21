@@ -31,6 +31,13 @@ major = st.session_state["selected_major"]
 local_folder = os.path.join("configs", major)
 os.makedirs(local_folder, exist_ok=True)
 
+def _active_assignment_types_for_major(mj: str):
+    """Resolve the assignment types currently active for this Major."""
+    override = st.session_state.get(f"{mj}_allowed_assignment_types")
+    if isinstance(override, (list, tuple)) and len(override) > 0:
+        return [str(x) for x in override if str(x).strip()]
+    return [str(x) for x in get_allowed_assignment_types()]
+
 # === 1) Ensure raw DataFrame is loaded for this Major ===
 raw_key = f"{major}_raw_df"
 if raw_key not in st.session_state:
@@ -191,6 +198,10 @@ st.markdown(
 # === 13) Assign Courses Section ===
 st.subheader("Assign Courses")
 
+# Show which assignment types are currently active for this Major
+_active = _active_assignment_types_for_major(major)
+st.caption(f"Active assignment types for **{major}**: {', '.join(_active) if _active else '(none)'}")
+
 search_assign = st.text_input(
     "Search by Student ID, Name, or Course",
     help="Filter extra courses by text"
@@ -203,6 +214,7 @@ if search_assign:
         | filtered_extras["Course"].str.contains(search_assign, case=False, na=False)
     ]
 
+# NOTE: ui_components.add_assignment_selection() already reads the active types dynamically
 edited_extra_courses_df = add_assignment_selection(filtered_extras)
 
 col1, col2, col3 = st.columns(3)
