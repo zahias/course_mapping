@@ -49,13 +49,25 @@ is_passing_grade = is_passing_grade_from_list
 def cell_color(value: str) -> str:
     """
     Applies background colors for cells showing one or more
-    'GRADE | credit' entries (comma-separated):
-      - If ANY entry starts with "CR", show pale yellow.
-      - Else if ANY entry has credit > 0 or credit token "PASS", show light green.
-      - Otherwise show pink.
+    'GRADE | credit' entries (comma-separated).
+
+    Collapsed completion toggle values ("c", "cr", "nc") map directly to their
+    associated colors, while the legacy "GRADE | credit" strings retain the
+    previous logic:
+      - Any "CR" entry ⇒ pale yellow.
+      - Any passing credit (>0 or "PASS") ⇒ light green.
+      - Otherwise ⇒ pink.
     """
     if not isinstance(value, str):
         return ""
+
+    collapsed = value.strip().lower()
+    if collapsed == "c":
+        return "background-color: lightgreen"
+    if collapsed == "cr":
+        return "background-color: #FFFACD"
+    if collapsed == "nc":
+        return "background-color: pink"
 
     # Split into individual entries like "F | 0" and "C- | 3"
     entries = [e.strip() for e in value.split(",") if e.strip()]
