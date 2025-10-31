@@ -342,15 +342,16 @@ def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_
     from openpyxl import Workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
     from openpyxl.styles import PatternFill, Font, Alignment
-    from config import cell_color
+    from config import cell_color, COMPLETION_COLOR_MAP
 
     output = io.BytesIO()
     workbook = Workbook()
     ws_req = workbook.active
     ws_req.title = "Required Courses"
 
-    light_green = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-    pink        = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
+    completed_fill = PatternFill(start_color="28A745", end_color="28A745", fill_type="solid")
+    current_fill   = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+    incomplete_fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
 
     for r_idx, row in enumerate(dataframe_to_rows(displayed_df, index=False, header=True), 1):
         for c_idx, value in enumerate(row, 1):
@@ -360,17 +361,17 @@ def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 if value == "c":
-                    cell.fill = light_green
-                elif value == "":
-                    cell.fill = pink
+                    cell.fill = completed_fill
+                elif value == "nc" or value == "":
+                    cell.fill = incomplete_fill
                 else:
                     style = cell_color(str(value))
-                    if "lightgreen" in style:
-                        cell.fill = light_green
-                    elif "#FFFACD" in style:
-                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+                    if COMPLETION_COLOR_MAP["c"] in style:
+                        cell.fill = completed_fill
+                    elif COMPLETION_COLOR_MAP["cr"] in style:
+                        cell.fill = current_fill
                     else:
-                        cell.fill = pink
+                        cell.fill = incomplete_fill
 
     ws_int = workbook.create_sheet(title="Intensive Courses")
     for r_idx, row in enumerate(dataframe_to_rows(intensive_displayed_df, index=False, header=True), 1):
@@ -381,17 +382,17 @@ def save_report_with_formatting(displayed_df: pd.DataFrame, intensive_displayed_
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 if value == "c":
-                    cell.fill = light_green
-                elif value == "":
-                    cell.fill = pink
+                    cell.fill = completed_fill
+                elif value == "nc" or value == "":
+                    cell.fill = incomplete_fill
                 else:
                     style = cell_color(str(value))
-                    if "lightgreen" in style:
-                        cell.fill = light_green
-                    elif "#FFFACD" in style:
-                        cell.fill = PatternFill(start_color="FFFACD", end_color="FFFACD", fill_type="solid")
+                    if COMPLETION_COLOR_MAP["c"] in style:
+                        cell.fill = completed_fill
+                    elif COMPLETION_COLOR_MAP["cr"] in style:
+                        cell.fill = current_fill
                     else:
-                        cell.fill = pink
+                        cell.fill = incomplete_fill
 
     workbook.save(output)
     output.seek(0)

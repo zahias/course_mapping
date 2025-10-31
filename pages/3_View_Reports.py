@@ -16,8 +16,10 @@ from config import (
     get_allowed_assignment_types,
     GRADE_ORDER,
     extract_primary_grade_from_full_value,
-    cell_color
+    cell_color,
+    COMPLETION_COLOR_MAP,
 )
+from completion_utils import collapse_pass_fail_value
 
 st.title("View Reports")
 st.markdown("---")
@@ -137,20 +139,11 @@ else:
 show_complete_toggle = st.checkbox(
     "Show Completed/Not Completed Only",
     value=False,
-    help="If enabled, displays 'c' for passed courses and blank for not passed."
+    help="If enabled, displays 'c' for passed courses, 'cr' for current registrations, and 'nc' for not completed."
 )
 if show_complete_toggle:
     def collapse_pass_fail(val):
-        if not isinstance(val, str):
-            return val
-        parts = val.split("|")
-        if len(parts) == 2:
-            credit_str = parts[1].strip()
-            try:
-                return "c" if int(credit_str) > 0 else ""
-            except ValueError:
-                return "c" if credit_str.upper() == "PASS" else ""
-        return val
+        return collapse_pass_fail_value(val)
 
     for course in target_courses:
         displayed_req_df[course] = displayed_req_df[course].apply(collapse_pass_fail)
@@ -189,9 +182,9 @@ display_dataframes(styled_req, styled_int, extra_courses_df, df)
 # === 12) Color Legend ===
 st.markdown(
     "<p><strong>Color Legend:</strong> "
-    "<span style='background-color: lightgreen; padding: 3px 10px;'>Passed</span> | "
-    "<span style='background-color: #FFFACD; padding: 3px 10px;'>Currently Registered (CR)</span> | "
-    "<span style='background-color: pink; padding: 3px 10px;'>Not Completed/Failing</span></p>",
+    f"<span style='{COMPLETION_COLOR_MAP['c']}; padding: 3px 10px;'>Passed</span> | "
+    f"<span style='{COMPLETION_COLOR_MAP['cr']}; padding: 3px 10px;'>Currently Registered (CR)</span> | "
+    f"<span style='{COMPLETION_COLOR_MAP['nc']}; padding: 3px 10px;'>Not Completed/Failing</span></p>",
     unsafe_allow_html=True
 )
 
