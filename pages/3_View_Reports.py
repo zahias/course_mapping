@@ -16,7 +16,8 @@ from config import (
     get_allowed_assignment_types,
     GRADE_ORDER,
     extract_primary_grade_from_full_value,
-    cell_color
+    cell_color,
+    COMPLETION_COLOR_MAP,
 )
 from completion_utils import collapse_pass_fail_value
 
@@ -181,9 +182,9 @@ display_dataframes(styled_req, styled_int, extra_courses_df, df)
 # === 12) Color Legend ===
 st.markdown(
     "<p><strong>Color Legend:</strong> "
-    "<span style='background-color: lightgreen; padding: 3px 10px;'>Passed</span> | "
-    "<span style='background-color: #FFFACD; padding: 3px 10px;'>Currently Registered (CR)</span> | "
-    "<span style='background-color: pink; padding: 3px 10px;'>Not Completed/Failing</span></p>",
+    f"<span style='{COMPLETION_COLOR_MAP['c']}; padding: 3px 10px;'>Passed</span> | "
+    f"<span style='{COMPLETION_COLOR_MAP['cr']}; padding: 3px 10px;'>Currently Registered (CR)</span> | "
+    f"<span style='{COMPLETION_COLOR_MAP['nc']}; padding: 3px 10px;'>Not Completed/Failing</span></p>",
     unsafe_allow_html=True
 )
 

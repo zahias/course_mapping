@@ -6,17 +6,17 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from config import cell_color  # noqa: E402
+from config import cell_color, COMPLETION_COLOR_MAP  # noqa: E402
 
 
 @pytest.mark.parametrize(
     "value, expected",
     [
-        ("c", "background-color: lightgreen"),
-        ("cr", "background-color: #FFFACD"),
-        ("nc", "background-color: pink"),
-        (" C ", "background-color: lightgreen"),
-        ("CR | 3", "background-color: #FFFACD"),
+        ("c", COMPLETION_COLOR_MAP["c"]),
+        ("cr", COMPLETION_COLOR_MAP["cr"]),
+        ("nc", COMPLETION_COLOR_MAP["nc"]),
+        (" C ", COMPLETION_COLOR_MAP["c"]),
+        ("CR | 3", COMPLETION_COLOR_MAP["cr"]),
     ],
 )
 def test_cell_color_collapsed_and_full_values(value, expected):

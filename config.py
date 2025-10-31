@@ -46,6 +46,13 @@ def is_passing_grade_from_list(grade: str, passing_grades_str: str) -> bool:
 # Alias
 is_passing_grade = is_passing_grade_from_list
 
+COMPLETION_COLOR_MAP = {
+    "c": "background-color: #28a745",  # solid green for completed courses
+    "cr": "background-color: #FFFACD",  # pale yellow for current registrations
+    "nc": "background-color: #f8d7da",  # light red for not completed
+}
+
+
 def cell_color(value: str) -> str:
     """
     Applies background colors for cells showing one or more
@@ -55,19 +62,15 @@ def cell_color(value: str) -> str:
     associated colors, while the legacy "GRADE | credit" strings retain the
     previous logic:
       - Any "CR" entry ⇒ pale yellow.
-      - Any passing credit (>0 or "PASS") ⇒ light green.
-      - Otherwise ⇒ pink.
+      - Any passing credit (>0 or "PASS") ⇒ solid green.
+      - Otherwise ⇒ light red.
     """
     if not isinstance(value, str):
         return ""
 
     collapsed = value.strip().lower()
-    if collapsed == "c":
-        return "background-color: lightgreen"
-    if collapsed == "cr":
-        return "background-color: #FFFACD"
-    if collapsed == "nc":
-        return "background-color: pink"
+    if collapsed in COMPLETION_COLOR_MAP:
+        return COMPLETION_COLOR_MAP[collapsed]
 
     # Split into individual entries like "F | 0" and "C- | 3"
     entries = [e.strip() for e in value.split(",") if e.strip()]
@@ -85,14 +88,14 @@ def cell_color(value: str) -> str:
             # numeric credits
             try:
                 if int(right) > 0:
-                    return "background-color: lightgreen"
+                    return COMPLETION_COLOR_MAP["c"]
             except ValueError:
                 # PASS for zero-credit courses
                 if right == "PASS":
-                    return "background-color: lightgreen"
+                    return COMPLETION_COLOR_MAP["c"]
 
     # 3) Otherwise, not passed
-    return "background-color: pink"
+    return COMPLETION_COLOR_MAP["nc"]
 
 def extract_primary_grade_from_full_value(value: str) -> str:
     """
