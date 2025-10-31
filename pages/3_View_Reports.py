@@ -143,9 +143,11 @@ if show_complete_toggle:
     def collapse_pass_fail(val):
         if not isinstance(val, str):
             return val
-        parts = val.split("|")
+        parts = [p.strip() for p in val.split("|")]
+        if parts and parts[0].upper() == "CR":
+            return "cr"
         if len(parts) == 2:
-            credit_str = parts[1].strip()
+            credit_str = parts[1]
             try:
                 return "c" if int(credit_str) > 0 else ""
             except ValueError:
