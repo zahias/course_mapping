@@ -18,6 +18,7 @@ from config import (
     extract_primary_grade_from_full_value,
     cell_color
 )
+from completion_utils import collapse_pass_fail_value
 
 st.title("View Reports")
 st.markdown("---")
@@ -137,20 +138,11 @@ else:
 show_complete_toggle = st.checkbox(
     "Show Completed/Not Completed Only",
     value=False,
-    help="If enabled, displays 'c' for passed courses and blank for not passed."
+    help="If enabled, displays 'c' for passed courses, 'cr' for current registrations, and 'nc' for not completed."
 )
 if show_complete_toggle:
     def collapse_pass_fail(val):
-        if not isinstance(val, str):
-            return val
-        parts = val.split("|")
-        if len(parts) == 2:
-            credit_str = parts[1].strip()
-            try:
-                return "c" if int(credit_str) > 0 else ""
-            except ValueError:
-                return "c" if credit_str.upper() == "PASS" else ""
-        return val
+        return collapse_pass_fail_value(val)
 
     for course in target_courses:
         displayed_req_df[course] = displayed_req_df[course].apply(collapse_pass_fail)
