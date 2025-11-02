@@ -188,6 +188,10 @@ def process_progress_report(
         axis=1
     )
 
+    # Capture the full student roster before splitting, so joins can retain
+    # students even if they lack rows in a particular category (e.g., intensive).
+    roster_df = df[["ID", "NAME"]].drop_duplicates()
+
     # 4) Split into required, intensive, extra
     extra_courses_df = df[
         (~df["Mapped Course"].isin(target_courses.keys())) &
@@ -210,6 +214,10 @@ def process_progress_report(
         values="ProcessedValue",
         aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
+
+    # Ensure the intensive table retains all students from the original roster,
+    # even if they lack intensive course entries.
+    intensive_pivot_df = roster_df.merge(intensive_pivot_df, on=["ID", "NAME"], how="left")
 
     # 6) Fill missing columns with "NR"
     for course in target_courses:
