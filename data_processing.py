@@ -215,8 +215,9 @@ def process_progress_report(
         aggfunc=lambda vals: ", ".join(vals)
     ).reset_index()
 
-    # Ensure the intensive table retains all students from the original roster,
-    # even if they lack intensive course entries.
+    # Ensure the required and intensive tables retain all students from the original
+    # roster, even if they lack rows in a particular category.
+    pivot_df = roster_df.merge(pivot_df, on=["ID", "NAME"], how="left")
     intensive_pivot_df = roster_df.merge(intensive_pivot_df, on=["ID", "NAME"], how="left")
 
     # 6) Fill missing columns with "NR"
