@@ -112,24 +112,50 @@ def extract_primary_grade_from_full_value(value: str) -> str:
     for entry in entries:
         if "|" in entry:
             g, c = entry.split("|", 1)
-            parsed.append((g.strip().upper(), c.strip()))
+            credit = c.strip()
+            parsed.append(
+                {
+                    "grade": g.strip().upper(),
+                    "credit": credit,
+                    "credit_upper": credit.upper(),
+                    "original": entry,
+                }
+            )
         else:
-            parsed.append((entry.strip().upper(), ""))
+            stripped = entry.strip()
+            parsed.append(
+                {
+                    "grade": stripped.upper(),
+                    "credit": "",
+                    "credit_upper": "",
+                    "original": stripped,
+                }
+            )
 
     # 1) Explicit CR check
-    for grade_tok, cred in parsed:
-        if grade_tok == "CR":
-            return f"{grade_tok} | {cred}" if cred else "CR"
+    for entry in parsed:
+        if entry["grade"] == "CR":
+            return entry["original"]
 
     # 2) Scan GRADE_ORDER
     for grade in GRADE_ORDER:
-        for grade_tok, cred in parsed:
-            if grade_tok == grade:
-                return f"{grade_tok} | {cred}" if cred else grade
+        for entry in parsed:
+            if entry["grade"] == grade:
+                return entry["original"]
 
-    # 3) Fallback to the very first entry
+    # 3) Prefer any clearly completed attempt (credit > 0 or PASS)
+    for entry in parsed:
+        credit = entry["credit"].strip()
+        if credit:
+            try:
+                if int(credit) > 0:
+                    return entry["original"]
+            except ValueError:
+                if entry["credit_upper"] == "PASS":
+                    return entry["original"]
+
+    # 4) Fallback to the very first entry
     if parsed:
-        grade_tok, cred = parsed[0]
-        return f"{grade_tok} | {cred}" if cred else grade_tok
+        return parsed[0]["original"]
 
     return ""
