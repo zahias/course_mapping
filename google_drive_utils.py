@@ -13,16 +13,18 @@ def authenticate_google_drive():
     refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
     token_uri = os.environ.get("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
 
+    if not all([client_id, client_secret, refresh_token, token_uri]):
+        raise ValueError("Missing Google Drive credentials. Please ensure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, and GOOGLE_TOKEN_URI are set.")
+
     creds = Credentials(
-        None,
+        token=None,
         refresh_token=refresh_token,
         token_uri=token_uri,
         client_id=client_id,
         client_secret=client_secret,
         scopes=SCOPES
     )
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+    creds.refresh(Request())
 
     return creds
 
