@@ -174,7 +174,13 @@ def process_progress_report(
 
         df["Mapped Course"] = df.apply(map_assignment, axis=1)
 
-    # 3) Pre‐format each row so CR isn’t lost & embed rule logic
+    # 3) Compute term ordinal for each row
+    df["TermOrd"] = df.apply(
+        lambda r: semester_to_ordinal(r.get("Semester", ""), r.get("Year", "")),
+        axis=1
+    )
+
+    # 4) Pre-format each row so CR is not lost and embed rule logic (with term matching)
     df["ProcessedValue"] = df.apply(
         lambda r: determine_course_value(
             r["Grade"],
@@ -183,7 +189,8 @@ def process_progress_report(
             intensive_courses if r["Mapped Course"] in intensive_courses else
             {},
             (target_rules.get(r["Mapped Course"], []) if r["Mapped Course"] in target_rules else
-             intensive_rules.get(r["Mapped Course"], []))
+             intensive_rules.get(r["Mapped Course"], [])),
+            r["TermOrd"]
         ),
         axis=1
     )
@@ -192,7 +199,7 @@ def process_progress_report(
     # students even if they lack rows in a particular category (e.g., intensive).
     roster_df = df[["ID", "NAME"]].drop_duplicates()
 
-    # 4) Split into required, intensive, extra
+    # 5) Split into required, intensive, extra
     extra_courses_df = df[
         (~df["Mapped Course"].isin(target_courses.keys())) &
         (~df["Mapped Course"].isin(intensive_courses.keys()))
@@ -200,7 +207,7 @@ def process_progress_report(
     target_df = df[df["Mapped Course"].isin(target_courses.keys())]
     intensive_df = df[df["Mapped Course"].isin(intensive_courses.keys())]
 
-    # 5) Pivot on ProcessedValue
+    # 6) Pivot on ProcessedValue
     pivot_df = target_df.pivot_table(
         index=["ID", "NAME"],
         columns="Mapped Course",
@@ -220,7 +227,7 @@ def process_progress_report(
     pivot_df = roster_df.merge(pivot_df, on=["ID", "NAME"], how="left")
     intensive_pivot_df = roster_df.merge(intensive_pivot_df, on=["ID", "NAME"], how="left")
 
-    # 6) Fill missing columns with "NR"
+    # 7) Fill missing columns with "NR"
     for course in target_courses:
         if course not in pivot_df.columns:
             pivot_df[course] = "NR"
@@ -252,7 +259,21 @@ def process_progress_report(
     extra_courses_list = sorted(extra_courses_df["Course"].unique())
     return result_df, intensive_result_df, extra_courses_df, extra_courses_list
 
-def determine_course_value(grade: str, course: str, courses_dict: dict, rules_list: list):
+def semester_to_ordinal(semester: str, year) -> float:
+    """
+    Converts semester and year to an ordinal for comparison.
+    Uses: year * 3 + {FALL: 0, SPRING: 1, SUMMER: 2}
+    """
+    try:
+        yr = int(year)
+        sem = str(semester).strip().upper()
+        sem_map = {"FALL": 0, "SPRING": 1, "SUMMER": 2}
+        return yr * 3 + sem_map.get(sem, 0)
+    except (ValueError, TypeError):
+        return float('-inf')
+
+
+def determine_course_value(grade: str, course: str, courses_dict: dict, rules_list: list, term_ord: float = None):
     """
     Processes a course grade, taking into account:
       - Numeric credits (for non‐zero‐credit courses)
@@ -264,25 +285,25 @@ def determine_course_value(grade: str, course: str, courses_dict: dict, rules_li
       {"Credits": int, "PassingGrades": "B+,B,B-", "FromOrd": 17, "ToOrd": 99},
       ...
     ]
+    term_ord: The ordinal of the semester when the student took the course
     """
 
-    # If the course isn't in our rule table at all, fallback:
-    info = {"Credits": 0, "PassingGrades": ""} if not rules_list else None
+    credits = 0
+    passing = ""
 
     if rules_list:
-        # We need to pick the rule entry whose FromOrd ≤ current term ≤ ToOrd.
-        # But since we don't know the student's term here, we skip that direct check.
-        # Instead, in this app, we assume all grade values use the same credits & passing‐grades
-        # that were specified when this value was computed in step 3.
-        # So at this point, rules_list was only passed in to show that this course was valid.
-        # The actual credits and passing logic come from the original credits & passing string.
-        # Thus, we simply pick the first rule in the list (which has the correct Credits+PassingGrades).
-        rule = rules_list[0]
-        credits = rule["Credits"]
-        passing = rule["PassingGrades"]
-    else:
-        credits = info["Credits"]
-        passing = info["PassingGrades"]
+        matched_rule = None
+        if term_ord is not None:
+            for rule in rules_list:
+                from_ord = rule.get("FromOrd", float('-inf'))
+                to_ord = rule.get("ToOrd", float('inf'))
+                if from_ord <= term_ord <= to_ord:
+                    matched_rule = rule
+                    break
+        if matched_rule is None:
+            matched_rule = rules_list[0]
+        credits = matched_rule["Credits"]
+        passing = matched_rule["PassingGrades"]
 
     if pd.isna(grade):
         return "NR"
