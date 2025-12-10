@@ -1,23 +1,17 @@
 import io
-import streamlit as st
+import os
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def authenticate_google_drive():
-    # Build credentials from st.secrets. We assume the user has added:
-    # [google]
-    # client_id = "YOUR_GOOGLE_CLIENT_ID"
-    # client_secret = "YOUR_GOOGLE_CLIENT_SECRET"
-    # refresh_token = "YOUR_REFRESH_TOKEN"
-    # token_uri = "https://oauth2.googleapis.com/token"
-
-    client_id = st.secrets["google"]["client_id"]
-    client_secret = st.secrets["google"]["client_secret"]
-    refresh_token = st.secrets["google"]["refresh_token"]
-    token_uri = st.secrets["google"].get("token_uri", "https://oauth2.googleapis.com/token")
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    refresh_token = os.environ.get("GOOGLE_REFRESH_TOKEN")
+    token_uri = os.environ.get("GOOGLE_TOKEN_URI", "https://oauth2.googleapis.com/token")
 
     creds = Credentials(
         None,
@@ -27,7 +21,6 @@ def authenticate_google_drive():
         client_secret=client_secret,
         scopes=SCOPES
     )
-    # Refresh if needed
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
 
