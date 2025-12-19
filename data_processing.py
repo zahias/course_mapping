@@ -22,8 +22,34 @@ def read_progress_report(filepath):
                     st.error(f"Missing columns: {missing}")
                     return None
                 return df[list(required)]
-            # Otherwise, pull the first sheet and attempt to transform wide → long
+            # Otherwise, pull the first sheet and check if it's already in long format
             df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+            # Check if it's already in long format (has Course, Grade, Year, Semester columns)
+            if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
+                # It's already in long format, just extract the needed columns
+                # Handle ID column variations
+                id_col = None
+                if 'ID' in df.columns:
+                    id_col = 'ID'
+                elif 'STUDENT ID' in df.columns:
+                    id_col = 'STUDENT ID'
+                else:
+                    st.error("Long format file missing an 'ID' or 'STUDENT ID' column.")
+                    return None
+                # Handle NAME column variations
+                name_col = None
+                if 'NAME' in df.columns:
+                    name_col = 'NAME'
+                elif 'Name' in df.columns:
+                    name_col = 'Name'
+                else:
+                    st.error("Long format file missing a 'NAME' column.")
+                    return None
+                # Select and rename columns to standard format
+                result_df = df[[id_col, name_col, 'Course', 'Grade', 'Year', 'Semester']].copy()
+                result_df = result_df.rename(columns={id_col: 'ID', name_col: 'NAME'})
+                return result_df
+            # Otherwise, attempt to transform wide → long
             transformed = transform_wide_format(df)
             if transformed is None:
                 st.error("Failed to read the uploaded progress report file.")
@@ -33,8 +59,29 @@ def read_progress_report(filepath):
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
             if {'Course','Grade','Year','Semester'}.issubset(df.columns):
-                # assume long form
-                return df[['ID','NAME','Course','Grade','Year','Semester']]
+                # It's already in long format, just extract the needed columns
+                # Handle ID column variations
+                id_col = None
+                if 'ID' in df.columns:
+                    id_col = 'ID'
+                elif 'STUDENT ID' in df.columns:
+                    id_col = 'STUDENT ID'
+                else:
+                    st.error("Long format file missing an 'ID' or 'STUDENT ID' column.")
+                    return None
+                # Handle NAME column variations
+                name_col = None
+                if 'NAME' in df.columns:
+                    name_col = 'NAME'
+                elif 'Name' in df.columns:
+                    name_col = 'Name'
+                else:
+                    st.error("Long format file missing a 'NAME' column.")
+                    return None
+                # Select and rename columns to standard format
+                result_df = df[[id_col, name_col, 'Course', 'Grade', 'Year', 'Semester']].copy()
+                result_df = result_df.rename(columns={id_col: 'ID', name_col: 'NAME'})
+                return result_df
             # otherwise try wide form
             transformed = transform_wide_format(df)
             if transformed is None:
