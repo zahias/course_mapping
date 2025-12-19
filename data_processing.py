@@ -19,7 +19,14 @@ def read_progress_report(filepath):
                 required = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
                 missing = required - set(df.columns)
                 if missing:
-                    st.error(f"Missing columns: {missing}")
+                    available_cols = ', '.join(sorted(df.columns))
+                    missing_cols = ', '.join(sorted(missing))
+                    st.error(
+                        f"**Missing required columns:** {missing_cols}\n\n"
+                        f"**Available columns:** {available_cols}\n\n"
+                        f"**Expected format:** Long format with columns: ID, NAME, Course, Grade, Year, Semester\n"
+                        f"**Tip:** Make sure your Excel sheet is named 'Progress Report' or contains these exact column names."
+                    )
                     return None
                 return df[list(required)]
             # Otherwise, pull the first sheet and check if it's already in long format
@@ -34,7 +41,14 @@ def read_progress_report(filepath):
                 elif 'STUDENT ID' in df.columns:
                     id_col = 'STUDENT ID'
                 else:
-                    st.error("Long format file missing an 'ID' or 'STUDENT ID' column.")
+                    available_cols = ', '.join(sorted(df.columns))
+                    st.error(
+                        f"**Missing ID column (Excel file)**\n\n"
+                        f"**Available columns:** {available_cols}\n\n"
+                        f"**Expected:** A column named 'ID' or 'STUDENT ID'\n"
+                        f"**Tip:** Check if your ID column has a different name (e.g., 'Student ID', 'StudentID'). "
+                        f"You may need to rename it in Excel before uploading."
+                    )
                     return None
                 # Handle NAME column variations
                 name_col = None
@@ -43,16 +57,37 @@ def read_progress_report(filepath):
                 elif 'Name' in df.columns:
                     name_col = 'Name'
                 else:
-                    st.error("Long format file missing a 'NAME' column.")
+                    available_cols = ', '.join(sorted(df.columns))
+                    st.error(
+                        f"**Missing NAME column (Excel file)**\n\n"
+                        f"**Available columns:** {available_cols}\n\n"
+                        f"**Expected:** A column named 'NAME' or 'Name'\n"
+                        f"**Tip:** Check if your name column has a different name (e.g., 'Student Name', 'Full Name'). "
+                        f"You may need to rename it in Excel before uploading."
+                    )
                     return None
                 # Select and rename columns to standard format
                 result_df = df[[id_col, name_col, 'Course', 'Grade', 'Year', 'Semester']].copy()
                 result_df = result_df.rename(columns={id_col: 'ID', name_col: 'NAME'})
                 return result_df
             # Otherwise, attempt to transform wide → long
+            # First, detect format and provide feedback
+            detected_format = _detect_file_format(df)
+            if detected_format:
+                st.info(f"📋 **Detected format:** {detected_format}")
+            
             transformed = transform_wide_format(df)
             if transformed is None:
-                st.error("Failed to read the uploaded progress report file.")
+                available_cols = ', '.join(sorted(df.columns))
+                st.error(
+                    f"**Failed to read the uploaded progress report file.**\n\n"
+                    f"**Available columns:** {available_cols}\n\n"
+                    f"**Possible issues:**\n"
+                    f"- File is not in the expected format (long or wide)\n"
+                    f"- Wide format files should have COURSE_* columns with values like 'CODE/SEM-YYYY/GRADE'\n"
+                    f"- Long format files should have columns: ID, NAME, Course, Grade, Year, Semester\n"
+                    f"**Tip:** If your file is in long format, ensure it has a sheet named 'Progress Report' or rename your columns to match the expected names."
+                )
             return transformed
 
         # CSV files
@@ -67,7 +102,14 @@ def read_progress_report(filepath):
                 elif 'STUDENT ID' in df.columns:
                     id_col = 'STUDENT ID'
                 else:
-                    st.error("Long format file missing an 'ID' or 'STUDENT ID' column.")
+                    available_cols = ', '.join(sorted(df.columns))
+                    st.error(
+                        f"**Missing ID column (CSV file)**\n\n"
+                        f"**Available columns:** {available_cols}\n\n"
+                        f"**Expected:** A column named 'ID' or 'STUDENT ID'\n"
+                        f"**Tip:** Check if your ID column has a different name. "
+                        f"You may need to rename it before uploading."
+                    )
                     return None
                 # Handle NAME column variations
                 name_col = None
@@ -76,16 +118,37 @@ def read_progress_report(filepath):
                 elif 'Name' in df.columns:
                     name_col = 'Name'
                 else:
-                    st.error("Long format file missing a 'NAME' column.")
+                    available_cols = ', '.join(sorted(df.columns))
+                    st.error(
+                        f"**Missing NAME column (CSV file)**\n\n"
+                        f"**Available columns:** {available_cols}\n\n"
+                        f"**Expected:** A column named 'NAME' or 'Name'\n"
+                        f"**Tip:** Check if your name column has a different name. "
+                        f"You may need to rename it before uploading."
+                    )
                     return None
                 # Select and rename columns to standard format
                 result_df = df[[id_col, name_col, 'Course', 'Grade', 'Year', 'Semester']].copy()
                 result_df = result_df.rename(columns={id_col: 'ID', name_col: 'NAME'})
                 return result_df
             # otherwise try wide form
+            # First, detect format and provide feedback
+            detected_format = _detect_file_format(df)
+            if detected_format:
+                st.info(f"📋 **Detected format:** {detected_format}")
+            
             transformed = transform_wide_format(df)
             if transformed is None:
-                st.error("Failed to read the uploaded progress report file.")
+                available_cols = ', '.join(sorted(df.columns))
+                st.error(
+                    f"**Failed to read the uploaded progress report file.**\n\n"
+                    f"**Available columns:** {available_cols}\n\n"
+                    f"**Possible issues:**\n"
+                    f"- File is not in the expected format (long or wide)\n"
+                    f"- Wide format files should have COURSE_* columns with values like 'CODE/SEM-YYYY/GRADE'\n"
+                    f"- Long format files should have columns: ID, NAME, Course, Grade, Year, Semester\n"
+                    f"**Tip:** Ensure your CSV has the correct column names or format."
+                )
             return transformed
 
         else:
@@ -93,8 +156,28 @@ def read_progress_report(filepath):
             return None
 
     except Exception as e:
-        st.error(f"Error reading file: {e}")
+        error_msg = str(e)
+        st.error(
+            f"**Error reading file:** {error_msg}\n\n"
+            f"**Common causes:**\n"
+            f"- File is corrupted or password-protected\n"
+            f"- File format is not supported (only .xlsx, .xls, .csv are supported)\n"
+            f"- File is too large or has formatting issues\n"
+            f"**Tip:** Try opening the file in Excel to verify it's not corrupted, then save it again."
+        )
         return None
+
+
+def _detect_file_format(df: pd.DataFrame) -> str:
+    """
+    Detects the file format and returns a descriptive string.
+    """
+    if {'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
+        return "Long format (detected columns: Course, Grade, Year, Semester)"
+    elif any(c.upper().startswith('COURSE') for c in df.columns):
+        return "Wide format (detected COURSE_* columns)"
+    else:
+        return "Unknown format (does not match expected long or wide format)"
 
 
 def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
@@ -141,7 +224,16 @@ def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
     # 6) Split COURSECODE/SEMESTER-YEAR/GRADE
     parts = df_melt['CourseData'].str.split('/', expand=True)
     if parts.shape[1] < 3:
-        st.error("Parsing error: expected 'CODE/SEM-YYYY/GRADE'.")
+        # Show sample of problematic data
+        sample_data = df_melt['CourseData'].dropna().head(3).tolist()
+        sample_str = '\n'.join([f"- {val}" for val in sample_data])
+        st.error(
+            f"**Parsing error: Expected format 'CODE/SEM-YYYY/GRADE'**\n\n"
+            f"**Sample data found:**\n{sample_str}\n\n"
+            f"**Expected format:** Each course cell should contain: COURSECODE/SEMESTER-YEAR/GRADE\n"
+            f"**Example:** CHEM201/Fall-2022/B+\n"
+            f"**Tip:** Check that your course columns contain data in the format: CourseCode/Semester-Year/Grade"
+        )
         return None
 
     df_melt['Course'] = parts[0].str.strip().str.upper()
@@ -151,7 +243,16 @@ def transform_wide_format(df: pd.DataFrame) -> pd.DataFrame | None:
     # 7) Split Semester and Year
     sem_parts = df_melt['RawSemYear'].str.split('-', expand=True)
     if sem_parts.shape[1] < 2:
-        st.error("Expected Semester-Year in format 'FALL-2016'.")
+        # Show sample of problematic data
+        sample_data = df_melt['RawSemYear'].dropna().head(3).tolist()
+        sample_str = '\n'.join([f"- {val}" for val in sample_data])
+        st.error(
+            f"**Parsing error: Expected Semester-Year format 'SEMESTER-YYYY'**\n\n"
+            f"**Sample data found:**\n{sample_str}\n\n"
+            f"**Expected format:** Semester-Year should be: SEMESTER-YYYY\n"
+            f"**Examples:** Fall-2022, Spring-2023, Summer-2024\n"
+            f"**Tip:** Ensure the semester and year are separated by a hyphen (e.g., Fall-2022, not Fall 2022)"
+        )
         return None
 
     df_melt['Semester'] = sem_parts[0].str.strip().str.title()

@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+from gpa_utils import calculate_gpa, get_gpa_summary
+from chart_utils import create_progress_timeline, create_grade_distribution_chart, create_completion_heatmap
 
 # NOTE:
 # - This page reads the parsed progress DataFrame directly from session_state,
@@ -141,6 +143,9 @@ with st.sidebar:
     selected_grades = st.multiselect("Filter by Grade", options=grades, default=grades)
 
     st.caption("Tip: Use the main page to upload or reload the progress report at any time; this page updates automatically.")
+    
+    # Chart toggle
+    show_charts = st.checkbox("Show Charts", value=False, help="Display visualizations of student progress")
 
 # Apply filters
 filtered = progress_df.copy()
@@ -169,11 +174,94 @@ if selected_student_option != "— All Students —" and not filtered.empty:
     sname = filtered["NAME"].iloc[0]
     st.subheader(f"Progress for: {sname} (ID: {sid})")
 
+    # Try to get course credits from target courses if available
+    course_credits_dict = None
+    major = st.session_state.get("selected_major")
+    if major:
+        target_key = f"{major}_target_courses"
+        intensive_key = f"{major}_intensive_courses"
+        if target_key in st.session_state:
+            course_credits_dict = st.session_state[target_key].copy()
+        if intensive_key in st.session_state and course_credits_dict:
+            course_credits_dict.update(st.session_state[intensive_key])
+    
+    # Calculate GPA for this student
+    student_gpa = None
+    if course_credits_dict:
+        try:
+            gpa_series = calculate_gpa(filtered, grade_col="Grade", course_credits_dict=course_credits_dict)
+            if sid in gpa_series.index and gpa_series[sid] is not None:
+                student_gpa = gpa_series[sid]
+        except Exception:
+            pass  # Silently fail if GPA calculation fails
+    
     # Simple KPIs
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Records", len(filtered))
     col2.metric("Unique Courses", filtered["Course"].nunique())
     col3.metric("Years Covered", filtered["Year"].nunique())
+    if student_gpa is not None:
+        col4.metric("GPA", f"{student_gpa:.2f}", help="Calculated based on completed courses with credit hours")
+    else:
+        col4.metric("GPA", "N/A", help="GPA calculation requires course credit information. Configure courses first.")
+
+# Calculate and display GPA summary if viewing all students
+if selected_student_option == "— All Students —" and not filtered.empty:
+    # Try to get course credits
+    course_credits_dict = None
+    major = st.session_state.get("selected_major")
+    if major:
+        target_key = f"{major}_target_courses"
+        intensive_key = f"{major}_intensive_courses"
+        if target_key in st.session_state:
+            course_credits_dict = st.session_state[target_key].copy()
+        if intensive_key in st.session_state and course_credits_dict:
+            course_credits_dict.update(st.session_state[intensive_key])
+    
+    # Calculate GPAs for all students
+    if course_credits_dict:
+        try:
+            gpa_series = calculate_gpa(filtered, grade_col="Grade", course_credits_dict=course_credits_dict)
+            gpa_summary = get_gpa_summary(pd.DataFrame({"GPA": gpa_series}))
+            
+            if gpa_summary:
+                st.markdown("### GPA Summary")
+                gpa_col1, gpa_col2, gpa_col3, gpa_col4, gpa_col5 = st.columns(5)
+                gpa_col1.metric("Average GPA", f"{gpa_summary.get('mean', 'N/A'):.2f}" if gpa_summary.get('mean') else "N/A")
+                gpa_col2.metric("Median GPA", f"{gpa_summary.get('median', 'N/A'):.2f}" if gpa_summary.get('median') else "N/A")
+                gpa_col3.metric("Highest GPA", f"{gpa_summary.get('max', 'N/A'):.2f}" if gpa_summary.get('max') else "N/A")
+                gpa_col4.metric("Lowest GPA", f"{gpa_summary.get('min', 'N/A'):.2f}" if gpa_summary.get('min') else "N/A")
+                gpa_col5.metric("Students", gpa_summary.get('count', 0))
+        except Exception:
+            pass  # Silently fail if GPA calculation fails
+
+# Display charts if enabled
+if show_charts and not filtered.empty:
+    st.markdown("### Visualizations")
+    
+    if selected_student_option != "— All Students —":
+        # Single student charts
+        sid = filtered["ID"].iloc[0]
+        sname = filtered["NAME"].iloc[0]
+        
+        chart_col1, chart_col2 = st.columns(2)
+        with chart_col1:
+            timeline_fig = create_progress_timeline(filtered, student_id=str(sid), student_name=sname)
+            st.plotly_chart(timeline_fig, use_container_width=True)
+        
+        with chart_col2:
+            grade_fig = create_grade_distribution_chart(filtered, student_id=str(sid))
+            st.plotly_chart(grade_fig, use_container_width=True)
+        
+        # Completion heatmap
+        all_courses = sorted(filtered["Course"].unique().tolist())
+        if all_courses:
+            heatmap_fig = create_completion_heatmap(filtered, all_courses, student_id=str(sid))
+            st.plotly_chart(heatmap_fig, use_container_width=True)
+    else:
+        # All students - show grade distribution
+        grade_fig = create_grade_distribution_chart(filtered)
+        st.plotly_chart(grade_fig, use_container_width=True)
 
 # Display table
 st.markdown("### Progress Table")
