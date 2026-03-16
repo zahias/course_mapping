@@ -22,8 +22,15 @@ def read_progress_report(filepath):
                     st.error(f"Missing columns: {missing}")
                     return None
                 return df[list(required)]
-            # Otherwise, pull the first sheet and attempt to transform wide → long
+            # Otherwise, pull the first sheet
             df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
+            # Normalize STUDENT ID → ID if needed
+            if 'STUDENT ID' in df.columns and 'ID' not in df.columns:
+                df = df.rename(columns={'STUDENT ID': 'ID'})
+            # Check if it's already long format
+            if {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
+                return df[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']]
+            # Otherwise, attempt to transform wide → long
             transformed = transform_wide_format(df)
             if transformed is None:
                 st.error("Failed to read the uploaded progress report file.")
@@ -275,9 +282,7 @@ def determine_course_value(grade: str, course: str, courses_dict: dict, rules_li
         credits = info["Credits"]
         passing = info["PassingGrades"]
 
-    if pd.isna(grade):
-        return "NR"
-    elif grade == "":
+    if pd.isna(grade) or grade == "":
         return f"CR | {credits}" if credits > 0 else "CR | PASS"
     else:
         tokens = [g.strip().upper() for g in grade.split(", ") if g.strip()]
