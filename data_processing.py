@@ -2,6 +2,35 @@ import pandas as pd
 import streamlit as st
 from config import GRADE_ORDER, is_passing_grade, get_allowed_assignment_types
 
+def _normalize_long_format(df: pd.DataFrame):
+    """
+    Case-insensitive detection of long-format columns.
+    Accepts variations: ID/STUDENT ID, NAME, Course/COURSE, Grade/GRADE,
+    Year/YEAR, Semester/SEMESTER.
+    Returns a normalized DataFrame with exactly ['ID','NAME','Course','Grade','Year','Semester'],
+    or None if required columns are missing.
+    """
+    col_upper = {c.upper(): c for c in df.columns}
+    aliases = {
+        'ID':       ['ID', 'STUDENT ID', 'STUDENTID', 'STUDENT_ID'],
+        'NAME':     ['NAME'],
+        'Course':   ['COURSE'],
+        'Grade':    ['GRADE'],
+        'Year':     ['YEAR'],
+        'Semester': ['SEMESTER'],
+    }
+    rename = {}
+    for canonical, options in aliases.items():
+        for opt in options:
+            if opt in col_upper:
+                rename[col_upper[opt]] = canonical
+                break
+        else:
+            return None  # required column missing
+    df = df.rename(columns=rename)
+    return df[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']]
+
+
 def read_progress_report(filepath):
     """
     Reads an uploaded progress report (Excel or CSV), in either:
@@ -16,20 +45,17 @@ def read_progress_report(filepath):
             # If there is a sheet literally named "Progress Report", read that long‐form
             if 'Progress Report' in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name='Progress Report')
-                required = {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}
-                missing = required - set(df.columns)
-                if missing:
-                    st.error(f"Missing columns: {missing}")
+                normalized = _normalize_long_format(df)
+                if normalized is None:
+                    st.error(f"'Progress Report' sheet is missing required columns. Found: {list(df.columns)}")
                     return None
-                return df[list(required)]
+                return normalized
             # Otherwise, pull the first sheet
             df = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
-            # Normalize STUDENT ID → ID if needed
-            if 'STUDENT ID' in df.columns and 'ID' not in df.columns:
-                df = df.rename(columns={'STUDENT ID': 'ID'})
-            # Check if it's already long format
-            if {'ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester'}.issubset(df.columns):
-                return df[['ID', 'NAME', 'Course', 'Grade', 'Year', 'Semester']]
+            # Try long format first (case-insensitive, handles STUDENT ID alias)
+            normalized = _normalize_long_format(df)
+            if normalized is not None:
+                return normalized
             # Otherwise, attempt to transform wide → long
             transformed = transform_wide_format(df)
             if transformed is None:
@@ -39,9 +65,10 @@ def read_progress_report(filepath):
         # CSV files
         elif filepath.lower().endswith('.csv'):
             df = pd.read_csv(filepath)
-            if {'Course','Grade','Year','Semester'}.issubset(df.columns):
-                # assume long form
-                return df[['ID','NAME','Course','Grade','Year','Semester']]
+            # Try long format first (case-insensitive)
+            normalized = _normalize_long_format(df)
+            if normalized is not None:
+                return normalized
             # otherwise try wide form
             transformed = transform_wide_format(df)
             if transformed is None:
